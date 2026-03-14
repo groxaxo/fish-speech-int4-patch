@@ -546,8 +546,27 @@ class BaseTransformer(nn.Module):
             index_json = path_obj / "model.safetensors.index.json"
             single_st = path_obj / "model.safetensors"
             pth_file = path_obj / "model.pth"
+            prefer_pth = (
+                "int8" in str(path_obj) or "int4" in str(path_obj)
+            ) and pth_file.exists()
 
-            if index_json.exists():
+            if prefer_pth:
+                weights = torch.load(
+                    pth_file,
+                    map_location="cpu",
+                    mmap=True,
+                    weights_only=True,
+                )
+                if "state_dict" in weights:
+                    weights = weights["state_dict"]
+                if weights and next(iter(weights.keys())).startswith("model."):
+                    weights = OrderedDict(
+                        (k.replace("model.", ""), v) for k, v in weights.items()
+                    )
+                for k in list(weights.keys()):
+                    if "audio_" in k:
+                        weights.pop(k)
+            elif index_json.exists():
                 logger.info("Loading sharded safetensors weights")
                 from safetensors.torch import load_file as st_load_file
 

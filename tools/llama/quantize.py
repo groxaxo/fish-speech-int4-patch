@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fish_speech.models.text2semantic.inference import load_model
+from fish_speech.models.text2semantic.inference import init_model
 from fish_speech.models.text2semantic.llama import find_multiple
 
 ##### Quantization Primitives ######
@@ -94,8 +94,16 @@ def pack_scales_and_zeros(scales, zeros):
 
 def unpack_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
-    assert scales_and_zeros.dtype == torch.float
+    assert scales_and_zeros.dtype in (torch.float, torch.bfloat16)
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
+
+
+def pack_int4_nibbles(w_int32):
+    assert w_int32.dim() == 2
+    assert w_int32.shape[-1] % 2 == 0
+    assert w_int32.dtype == torch.int32
+
+    return (((w_int32[:, ::2] & 0xF) << 4) | (w_int32[:, 1::2] & 0xF)).to(torch.uint8)
 
 
 def group_quantize_tensor_from_qparams(w, scales, zeros, n_bit=4, groupsize=128):
@@ -243,8 +251,9 @@ def prepare_int4_weight_and_scales_and_zeros(weight_bf16, groupsize, inner_k_til
     weight_int32, scales_and_zeros = group_quantize_tensor(
         weight_bf16, n_bit=4, groupsize=groupsize
     )
+    weight_uint8 = pack_int4_nibbles(weight_int32)
     weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(
-        weight_int32, inner_k_tiles
+        weight_uint8, inner_k_tiles
     )
     return weight_int4pack, scales_and_zeros
 
@@ -385,9 +394,9 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         self.inner_k_tiles = inner_k_tiles
 
         assert out_features % 8 == 0, "require out_features % 8 == 0"
-        assert (
-            in_features % (inner_k_tiles * 16) == 0
-        ), "require in_features % (innerKTiles * 16) == 0"
+        assert in_features % (inner_k_tiles * 16) == 0, (
+            "require in_features % (innerKTiles * 16) == 0"
+        )
         self.register_buffer(
             "weight",
             torch.empty(
@@ -424,6 +433,28 @@ def generate_folder_name():
     return folder_name
 
 
+def build_output_path(
+    checkpoint_path: Path,
+    mode: str,
+    timestamp: str,
+    groupsize: int,
+    output_path: Path | None,
+) -> Path:
+    if output_path is not None:
+        return output_path
+
+    suffix = f"{mode}-g{groupsize}" if mode == "int4" else mode
+    return checkpoint_path.parent / f"{checkpoint_path.name}-{suffix}-{timestamp}"
+
+
+def remove_source_weight_files(checkpoint_path: Path):
+    for filename in ["model.safetensors", "model.safetensors.index.json"]:
+        (checkpoint_path / filename).unlink(missing_ok=True)
+
+    for shard in checkpoint_path.glob("model-*.safetensors"):
+        shard.unlink(missing_ok=True)
+
+
 @click.command()
 @click.option(
     "--checkpoint-path",
@@ -437,21 +468,33 @@ def generate_folder_name():
     "--groupsize", type=int, default=128, help="Group size for int4 quantization."
 )
 @click.option("--timestamp", type=str, default="None", help="When to do quantization")
-def quantize(checkpoint_path: Path, mode: str, groupsize: int, timestamp: str) -> None:
+@click.option(
+    "--output-path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Directory to write the quantized checkpoint into.",
+)
+def quantize(
+    checkpoint_path: Path,
+    mode: str,
+    groupsize: int,
+    timestamp: str,
+    output_path: Path | None,
+) -> None:
 
+    checkpoint_path = checkpoint_path.resolve()
     device = "cpu"
     precision = torch.bfloat16
 
     print("Loading model ...")
     t0 = time.time()
 
-    model, _ = load_model(
+    model, _ = init_model(
         checkpoint_path=checkpoint_path,
         device=device,
         precision=precision,
         compile=False,
     )
-    vq_model = "codec.pth"
     now = timestamp if timestamp != "None" else generate_folder_name()
 
     if mode == "int8":
@@ -461,11 +504,9 @@ def quantize(checkpoint_path: Path, mode: str, groupsize: int, timestamp: str) -
         quant_handler = WeightOnlyInt8QuantHandler(model)
         quantized_state_dict = quant_handler.create_quantized_state_dict()
 
-        dir_name = checkpoint_path
-        dst_name = Path(f"checkpoints/fs-1.2-int8-{now}")
-        shutil.copytree(str(dir_name.resolve()), str(dst_name.resolve()))
-        if (dst_name / vq_model).exists():
-            (dst_name / vq_model).unlink()
+        dst_name = build_output_path(checkpoint_path, mode, now, groupsize, output_path)
+        shutil.copytree(str(checkpoint_path), str(dst_name.resolve()))
+        remove_source_weight_files(dst_name)
         quantize_path = dst_name / "model.pth"
 
     elif mode == "int4":
@@ -475,11 +516,9 @@ def quantize(checkpoint_path: Path, mode: str, groupsize: int, timestamp: str) -
         quant_handler = WeightOnlyInt4QuantHandler(model, groupsize)
         quantized_state_dict = quant_handler.create_quantized_state_dict()
 
-        dir_name = checkpoint_path
-        dst_name = Path(f"checkpoints/fs-1.2-int4-g{groupsize}-{now}")
-        shutil.copytree(str(dir_name.resolve()), str(dst_name.resolve()))
-        if (dst_name / vq_model).exists():
-            (dst_name / vq_model).unlink()
+        dst_name = build_output_path(checkpoint_path, mode, now, groupsize, output_path)
+        shutil.copytree(str(checkpoint_path), str(dst_name.resolve()))
+        remove_source_weight_files(dst_name)
         quantize_path = dst_name / "model.pth"
 
     else:
