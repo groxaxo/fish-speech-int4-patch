@@ -365,6 +365,10 @@ def init_model(checkpoint_path, device, precision, compile=False, max_length=Non
     )
 
     model = model.to(device=device, dtype=precision)
+    model._bandwidth_model_size = sum(
+        p.numel() for p in model.parameters() if p.requires_grad
+    )
+    model._debug_prompt_structure = os.getenv("FISH_SPEECH_DEBUG_PROMPT", "0") == "1"
     logger.info(f"Restored model from checkpoint")
 
     if isinstance(model, DualARTransformer):
@@ -556,7 +560,11 @@ def generate_long(
     if prompt_tokens:
         prompt_tokens = [i.cpu() for i in prompt_tokens]
 
-    model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    model_size = getattr(
+        model,
+        "_bandwidth_model_size",
+        sum(p.numel() for p in model.parameters() if p.requires_grad),
+    )
     tokenizer = model.tokenizer
     max_length = model.config.max_seq_len
 
@@ -650,12 +658,13 @@ def generate_long(
                 )
             )
 
-            logger.info("Visualizing prompt structure:")
-            conversation_gen.visualize(
-                tokenizer,
-                merge_audio_tokens=True,
-                merge_semantic_tokens=True,
-            )
+            if getattr(model, "_debug_prompt_structure", False):
+                logger.debug("Visualizing prompt structure:")
+                conversation_gen.visualize(
+                    tokenizer,
+                    merge_audio_tokens=True,
+                    merge_semantic_tokens=True,
+                )
 
             encoded, audio_masks, audio_parts = conversation_gen.encode_for_inference(
                 tokenizer, num_codebooks=model.config.num_codebooks

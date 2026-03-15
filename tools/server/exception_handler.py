@@ -7,6 +7,13 @@ from kui.asgi import HTTPException, JSONResponse
 class ExceptionHandler:
 
     async def http_exception_handler(self, exc: HTTPException):
+        if isinstance(exc.content, dict):
+            return JSONResponse(
+                {"detail": exc.content},
+                exc.status_code,
+                exc.headers,
+            )
+
         return JSONResponse(
             dict(
                 statusCode=exc.status_code,

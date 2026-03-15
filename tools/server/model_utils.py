@@ -1,3 +1,4 @@
+import hashlib
 import io
 import re
 
@@ -6,7 +7,7 @@ import torch
 import torchaudio
 from cachetools import LRUCache, cached
 
-CACHE_MAXSIZE = 10000
+CACHE_MAXSIZE = 256
 MICRO_BATCH_SIZE = 8
 ASR_SAMPLE_RATE = 16000
 HUGE_GAP_THRESHOLD = 4000
@@ -48,12 +49,25 @@ def batch_encode(model, audios_list: list[bytes]):
     return [feature[..., :length] for feature, length in zip(features, feature_lengths)]
 
 
+def _hash_audio_bytes(audio: bytes) -> str:
+    return hashlib.blake2b(audio, digest_size=16).hexdigest()
+
+
 @cached(
     cache=LRUCache(maxsize=CACHE_MAXSIZE),
-    key=lambda model, audios: (model.device, tuple(audios)),
+    key=lambda model, audios: (
+        str(model.device),
+        tuple(_hash_audio_bytes(audio) for audio in audios),
+    ),
 )
+def _cached_vqgan_batch_encode(model, audios: tuple[bytes, ...]):
+    return batch_encode(model, list(audios))
+
+
 def cached_vqgan_batch_encode(model, audios: list[bytes]):
-    return batch_encode(model, audios)
+    if not all(isinstance(audio, bytes) for audio in audios):
+        return batch_encode(model, audios)
+    return _cached_vqgan_batch_encode(model, tuple(audios))
 
 
 @torch.no_grad()

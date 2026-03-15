@@ -91,6 +91,7 @@ filelists/
 # Cache and Temporary Files
 # --------------------------
 /.cache/
+/.firecrawl/
 /.gradio/
 /.locale/
 .pgx.*

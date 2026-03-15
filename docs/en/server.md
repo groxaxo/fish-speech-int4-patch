@@ -21,6 +21,7 @@ Common options:
 - `--half`: use fp16 mode
 - `--api-key`: require bearer token authentication
 - `--workers`: set worker process count
+- `--max-seq-len`: reduce KV-cache preallocation for smaller GPUs
 
 ### Health check
 
@@ -37,8 +38,58 @@ Expected response:
 ### Main API endpoint
 
 - `POST /v1/tts` for text-to-speech generation
+- `POST /v1/audio/speech` for OpenAI-compatible text-to-speech requests
+- `GET /v1/models` and `GET /v1/models/{id}` for OpenAI-compatible model discovery
+- `GET /v1/audio/voices` for available Fish Speech reference IDs
 - `POST /v1/vqgan/encode` for VQ encode
 - `POST /v1/vqgan/decode` for VQ decode
+
+### Text normalization
+
+`/v1/tts` and `/v1/audio/speech` now support Kokoro-inspired text sanitization and normalization before inference. The request schema keeps the legacy `normalize` flag and also accepts a nested `normalization_options` object for finer control over:
+
+- URL normalization
+- email normalization
+- optional pluralization (`(s)`)
+- phone number normalization
+- symbol replacement
+- unit normalization
+
+For example:
+
+```json
+{
+  "text": "Contact me at user@example.com and visit https://fish.audio/docs at 10:35 pm",
+  "format": "wav",
+  "normalize": true,
+  "normalization_options": {
+    "url_normalization": true,
+    "email_normalization": true,
+    "phone_normalization": true
+  }
+}
+```
+
+### OpenAI-compatible speech endpoint
+
+Example request:
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "tts-1",
+    "input": "Hello from Fish Speech.",
+    "voice": "alloy",
+    "response_format": "mp3",
+    "stream": false
+  }' --output speech.mp3
+```
+
+`voice` can either be:
+
+- one of the standard OpenAI-compatible aliases such as `alloy` or `nova` (mapped to Fish Speech default synthesis), or
+- an existing Fish Speech `reference_id`, which enables reference-conditioned synthesis through the OpenAI-style endpoint.
 
 ## WebUI Inference
 

@@ -10,6 +10,7 @@ from pydantic.functional_validators import SkipValidation
 from typing_extensions import Annotated
 
 from fish_speech.content_sequence import TextPart, VQPart
+from fish_speech.text import TextNormalizationOptions
 
 
 class ServeVQPart(BaseModel):
@@ -84,7 +85,7 @@ class ServeTTSRequest(BaseModel):
     # Audio format
     format: Literal["wav", "pcm", "mp3"] = "wav"
     # References audios for in-context learning
-    references: list[ServeReferenceAudio] = []
+    references: list[ServeReferenceAudio] = Field(default_factory=list)
     # Reference id
     # For example, if you want use https://fish.audio/m/7f92f8afb8ec43bf81429cc1c9199cb1/
     # Just pass 7f92f8afb8ec43bf81429cc1c9199cb1
@@ -93,6 +94,9 @@ class ServeTTSRequest(BaseModel):
     use_memory_cache: Literal["on", "off"] = "off"
     # Normalize text for en & zh, this increase stability for numbers
     normalize: bool = True
+    normalization_options: TextNormalizationOptions = Field(
+        default_factory=TextNormalizationOptions
+    )
     # not usually used below
     streaming: bool = False
     max_new_tokens: int = 1024
@@ -109,6 +113,23 @@ class AddReferenceRequest(BaseModel):
     id: str = Field(..., min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9\-_ ]+$")
     audio: bytes
     text: str = Field(..., min_length=1)
+
+
+class OpenAISpeechRequest(BaseModel):
+    model: str = "fish-speech"
+    input: str
+    voice: str = "alloy"
+    response_format: Literal["wav", "pcm", "mp3"] = "mp3"
+    speed: Annotated[float, Field(ge=0.25, le=4.0, strict=True)] = 1.0
+    stream: bool = True
+    chunk_length: Annotated[int, conint(ge=100, le=300, strict=True)] = 200
+    max_new_tokens: int = 1024
+    top_p: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
+    repetition_penalty: Annotated[float, Field(ge=0.9, le=2.0, strict=True)] = 1.1
+    temperature: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
+    normalization_options: TextNormalizationOptions = Field(
+        default_factory=TextNormalizationOptions
+    )
 
 
 class AddReferenceResponse(BaseModel):
