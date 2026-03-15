@@ -1,0 +1,81 @@
+{
+  "samples_requested": 10,
+  "successful_samples": 10,
+  "avg_elapsed_s": 8.8646071434021,
+  "median_elapsed_s": 7.908799767494202,
+  "avg_duration_s": 3.910240362811791,
+  "avg_rtf": 2.269366805635429,
+  "median_rtf": 2.2706542206749454,
+  "runs": [
+    {
+      "elapsed": 8.023741006851196,
+      "duration": 3.5294331065759637,
+      "rtf": 2.273379538459458,
+      "path": "/tmp/tmpolz5hvm0.mp3",
+      "text": "The quick brown fox jumps over the lazy dog."
+    },
+    {
+      "elapsed": 8.90092134475708,
+      "duration": 3.900952380952381,
+      "rtf": 2.2817303251940757,
+      "path": "/tmp/tmp6f71h6jr.mp3",
+      "text": "The quick brown fox jumps over the lazy dog."
+    },
+    {
+      "elapsed": 7.213750839233398,
+      "duration": 3.1579138321995464,
+      "rtf": 2.284340619328706,
+      "path": "/tmp/tmp0ktbvc_8.mp3",
+      "text": "Prueba en espa\u00f1ol para medir rendimiento y latencia."
+    },
+    {
+      "elapsed": 12.529787540435791,
+      "duration": 5.572789115646258,
+      "rtf": 2.248387168510817,
+      "path": "/tmp/tmpho8zrrm3.mp3",
+      "text": "Hola, este es un texto de ejemplo para medir el factor en tiempo real."
+    },
+    {
+      "elapsed": 7.793858528137207,
+      "duration": 3.436553287981859,
+      "rtf": 2.2679289028904326,
+      "path": "/tmp/tmpsecc_x9d.mp3",
+      "text": "The quick brown fox jumps over the lazy dog."
+    },
+    {
+      "elapsed": 7.354972839355469,
+      "duration": 3.250793650793651,
+      "rtf": 2.2625160589814186,
+      "path": "/tmp/tmpj65pggn7.mp3",
+      "text": "This is another test sentence to generate audio."
+    },
+    {
+      "elapsed": 7.713069438934326,
+      "duration": 3.3901133786848074,
+      "rtf": 2.2751656293945564,
+      "path": "/tmp/tmpn4rrxqn7.mp3",
+      "text": "The quick brown fox jumps over the lazy dog."
+    },
+    {
+      "elapsed": 11.156157732009888,
+      "duration": 4.96907029478458,
+      "rtf": 2.245119724653348,
+      "path": "/tmp/tmphjqu69i0.mp3",
+      "text": "Hola, este es un texto de ejemplo para medir el factor en tiempo real."
+    },
+    {
+      "elapsed": 7.343259811401367,
+      "duration": 3.2043537414965986,
+      "rtf": 2.291650798819635,
+      "path": "/tmp/tmp1d53ktrm.mp3",
+      "text": "The quick brown fox jumps over the lazy dog."
+    },
+    {
+      "elapsed": 10.616552352905273,
+      "duration": 4.690430839002268,
+      "rtf": 2.263449290121841,
+      "path": "/tmp/tmp74fo1vpb.mp3",
+      "text": "Hello world. This is a benchmark sample for realtime factor measurement."
+    }
+  ]
+}

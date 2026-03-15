@@ -1,0 +1,370 @@
+From 26a3f669198d25487cd17239aabfcc714a8abea5 Mon Sep 17 00:00:00 2001
+From: opencode <opencode@users.noreply.github.com>
+Date: Sun, 15 Mar 2026 19:17:58 +1300
+Subject: [PATCH] fix: correct openai speech response streaming
+
+Default OpenAI-style speech requests to buffered responses, make chunked audio iteration async, add regression coverage, and include benchmark/correlation helper scripts used for live validation.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+---
+ fish_speech/utils/schema.py     |   2 +-
+ tests/test_api_utils.py         |  16 ++++
+ tools/correlate_with_whisper.py | 142 ++++++++++++++++++++++++++++++++
+ tools/rtf_benchmark.py          | 128 ++++++++++++++++++++++++++++
+ tools/server/api_utils.py       |   4 +-
+ 5 files changed, 289 insertions(+), 3 deletions(-)
+ create mode 100644 tools/correlate_with_whisper.py
+ create mode 100644 tools/rtf_benchmark.py
+
+diff --git a/fish_speech/utils/schema.py b/fish_speech/utils/schema.py
+index d9a4fe7..3dd1e3a 100644
+--- a/fish_speech/utils/schema.py
++++ b/fish_speech/utils/schema.py
+@@ -121,7 +121,7 @@ class OpenAISpeechRequest(BaseModel):
+     voice: str = "alloy"
+     response_format: Literal["wav", "pcm", "mp3"] = "mp3"
+     speed: Annotated[float, Field(ge=0.25, le=4.0, strict=True)] = 1.0
+-    stream: bool = True
++    stream: bool = False
+     chunk_length: Annotated[int, conint(ge=100, le=300, strict=True)] = 200
+     max_new_tokens: int = 1024
+     top_p: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
+diff --git a/tests/test_api_utils.py b/tests/test_api_utils.py
+index 8f7f069..144e089 100644
+--- a/tests/test_api_utils.py
++++ b/tests/test_api_utils.py
+@@ -1,4 +1,5 @@
+ import unittest
++import asyncio
+ 
+ import numpy as np
+ 
+@@ -46,6 +47,21 @@ class ApiUtilsTests(unittest.TestCase):
+         self.assertFalse(tts_req.streaming)
+         self.assertEqual(tts_req.format, "mp3")
+ 
++    def test_openai_speech_request_defaults_to_non_streaming(self):
++        req = OpenAISpeechRequest(input="Hello world")
++        self.assertFalse(req.stream)
++
++    def test_chunk_bytes_returns_async_iterable(self):
++        from tools.server.api_utils import chunk_bytes
++
++        async def collect():
++            items = []
++            async for chunk in chunk_bytes(b"abcdef", chunk_size=2):
++                items.append(chunk)
++            return items
++
++        self.assertEqual(asyncio.run(collect()), [b"ab", b"cd", b"ef"])
++
+     def test_openai_voice_alias_and_reference_lookup(self):
+         self.assertIsNone(resolve_openai_reference_id("alloy", ["demo"]))
+         self.assertEqual(resolve_openai_reference_id("demo", ["demo"]), "demo")
+diff --git a/tools/correlate_with_whisper.py b/tools/correlate_with_whisper.py
+new file mode 100644
+index 0000000..3cbccfe
+--- /dev/null
++++ b/tools/correlate_with_whisper.py
+@@ -0,0 +1,142 @@
++#!/usr/bin/env python3
++"""
++Correlate generated audio from local fish-speech server with a Whisper-style ASR endpoint.
++
++Usage:
++  python tools/correlate_with_whisper.py \
++    --server http://127.0.0.1:8181 \
++    --whisper http://100.85.200.54:5092/v1/transcriptions \
++    --text "Hello world" \
++    --format mp3
++
++Notes:
++- The script supports multipart/form-data file upload (default). If your Whisper instance expects a different payload, adapt the --whisper-* args.
++- Computes a simple WER (word error rate) between reference text and ASR result.
++"""
++
++import argparse
++import requests
++import tempfile
++import os
++import time
++import json
++
++
++def simple_wer(ref, hyp):
++    # compute word-level Levenshtein distance / ref_length
++    r = ref.strip().split()
++    h = hyp.strip().split()
++    n = len(r)
++    if n == 0:
++        return 0.0 if len(h) == 0 else 1.0
++    # dp
++    dp = [[0]*(len(h)+1) for _ in range(len(r)+1)]
++    for i in range(len(r)+1):
++        dp[i][0] = i
++    for j in range(len(h)+1):
++        dp[0][j] = j
++    for i in range(1, len(r)+1):
++        for j in range(1, len(h)+1):
++            if r[i-1] == h[j-1]:
++                dp[i][j] = dp[i-1][j-1]
++            else:
++                dp[i][j] = 1 + min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
++    edits = dp[len(r)][len(h)]
++    return edits / float(n)
++
++
++def generate_audio(server, text, fmt='mp3', timeout=600):
++    url = server.rstrip('/') + '/v1/audio/speech'
++    payload = {"input": text, "format": fmt}
++    start = time.time()
++    r = requests.post(url, json=payload, timeout=timeout)
++    elapsed = time.time() - start
++    r.raise_for_status()
++    ctype = r.headers.get('content-type','')
++    ext = '.mp3' if 'mpeg' in ctype or 'mp3' in ctype or 'audio/mpeg' in ctype else '.wav'
++    out = tempfile.mktemp(suffix=ext)
++    with open(out, 'wb') as f:
++        f.write(r.content)
++    return out, elapsed
++
++
++def send_to_whisper(whisper_url, path, headers=None, payload_format='multipart'):
++    if payload_format == 'multipart':
++        files = {'file': open(path, 'rb')}
++        r = requests.post(whisper_url, files=files, headers=headers, timeout=600)
++    elif payload_format == 'json_base64':
++        import base64
++        with open(path, 'rb') as f:
++            b64 = base64.b64encode(f.read()).decode('ascii')
++        r = requests.post(whisper_url, json={'audio': b64}, headers=headers, timeout=600)
++    else:
++        # raw bytes
++        with open(path, 'rb') as f:
++            data = f.read()
++        r = requests.post(whisper_url, data=data, headers=headers, timeout=600)
++    r.raise_for_status()
++    try:
++        return r.json()
++    except Exception:
++        return {'raw_text': r.text}
++
++
++def main():
++    p = argparse.ArgumentParser()
++    p.add_argument('--server', default='http://127.0.0.1:8181')
++    p.add_argument('--whisper', required=True, help='Full whisper URL (e.g. http://host:port/v1/transcriptions)')
++    p.add_argument('--text', required=True)
++    p.add_argument('--format', default='mp3')
++    p.add_argument('--whisper-format', default='multipart', choices=['multipart','json_base64','raw'])
++    p.add_argument('--whisper-auth', default=None, help='Optional Authorization header value (e.g. "Bearer ...")')
++    p.add_argument('--out', default='/tmp/fish_whisper_correlation.json')
++    args = p.parse_args()
++
++    print('Generating audio...')
++    path, gen_elapsed = generate_audio(args.server, args.text, fmt=args.format)
++    print('Wrote audio to', path, 'generation time:', gen_elapsed)
++
++    headers = {}
++    if args.whisper_auth:
++        headers['Authorization'] = args.whisper_auth
++
++    print('Sending to Whisper endpoint...')
++    resp = send_to_whisper(args.whisper, path, headers=headers or None, payload_format=args.whisper_format)
++    # Try to extract transcript
++    transcript = None
++    if isinstance(resp, dict):
++        for k in ('text','transcript','transcription'):
++            if k in resp:
++                transcript = resp[k]
++                break
++        if transcript is None:
++            # try nested
++            for v in resp.values():
++                if isinstance(v, str) and len(v) > 0:
++                    transcript = v
++                    break
++    else:
++        transcript = str(resp)
++
++    if transcript is None:
++        transcript = json.dumps(resp)
++
++    wer = simple_wer(args.text, transcript)
++
++    report = {
++        'reference': args.text,
++        'transcript_raw': transcript,
++        'wer': wer,
++        'audio_file': path,
++        'generation_time_s': gen_elapsed,
++        'whisper_response': resp
++    }
++
++    with open(args.out, 'w') as f:
++        json.dump(report, f, indent=2)
++
++    print('Wrote correlation report to', args.out)
++    print(json.dumps(report, indent=2))
++
++if __name__ == '__main__':
++    main()
+diff --git a/tools/rtf_benchmark.py b/tools/rtf_benchmark.py
+new file mode 100644
+index 0000000..7164a3e
+--- /dev/null
++++ b/tools/rtf_benchmark.py
+@@ -0,0 +1,128 @@
++#!/usr/bin/env python3
++"""
++RTF benchmark for fish-speech
++
++Usage:
++  python tools/rtf_benchmark.py --server http://127.0.0.1:8181 --samples 10 --warmup 2 --output /tmp/fish_rtf_report.json
++
++This script POSTs text to /v1/audio/speech, measures wall time and audio duration, and computes RTF = elapsed / audio_duration.
++"""
++
++import argparse
++import requests
++import time
++import tempfile
++import os
++import json
++import statistics
++import random
++
++SAMPLE_TEXTS = [
++    "Hello world. This is a benchmark sample for realtime factor measurement.",
++    "Hola, este es un texto de ejemplo para medir el factor en tiempo real.",
++    "The quick brown fox jumps over the lazy dog.",
++    "Prueba en español para medir rendimiento y latencia.",
++    "This is another test sentence to generate audio."
++]
++
++
++def duration_of_file(path):
++    # try soundfile, then mutagen as fallback
++    try:
++        import soundfile as sf
++        info = sf.info(path)
++        return info.frames / float(info.samplerate)
++    except Exception:
++        try:
++            from mutagen.mp3 import MP3
++            return MP3(path).info.length
++        except Exception:
++            return None
++
++
++def generate_audio(server, text, fmt='mp3', timeout=600):
++    url = server.rstrip('/') + '/v1/audio/speech'
++    payload = {"input": text, "format": fmt}
++    start = time.time()
++    r = requests.post(url, json=payload, timeout=timeout)
++    elapsed = time.time() - start
++    r.raise_for_status()
++    ctype = r.headers.get('content-type','')
++    ext = '.mp3' if 'mpeg' in ctype or 'mp3' in ctype or 'audio/mpeg' in ctype else '.wav'
++    out = tempfile.mktemp(suffix=ext)
++    with open(out, 'wb') as f:
++        f.write(r.content)
++    duration = duration_of_file(out)
++    return elapsed, duration, out
++
++
++def main():
++    p = argparse.ArgumentParser()
++    p.add_argument('--server', default='http://127.0.0.1:8181')
++    p.add_argument('--samples', type=int, default=10)
++    p.add_argument('--warmup', type=int, default=2)
++    p.add_argument('--format', default='mp3')
++    p.add_argument('--output', default='/tmp/fish_rtf_report.json')
++    args = p.parse_args()
++
++    # simple readiness check
++    print('Checking server readiness...')
++    for _ in range(120):
++        try:
++            resp = requests.get(args.server.rstrip('/') + '/v1/models', timeout=5)
++            if resp.status_code < 400:
++                print('Server ready')
++                break
++        except Exception:
++            pass
++        time.sleep(1)
++    else:
++        print('Server did not respond in time; continuing but requests may fail')
++
++    # warmup
++    for i in range(args.warmup):
++        text = random.choice(SAMPLE_TEXTS)
++        print(f'Warmup {i+1}/{args.warmup}...')
++        try:
++            generate_audio(args.server, text, fmt=args.format)
++        except Exception as e:
++            print('Warmup failed:', e)
++
++    results = []
++    for i in range(args.samples):
++        text = random.choice(SAMPLE_TEXTS)
++        print(f'Run {i+1}/{args.samples}...')
++        try:
++            elapsed, duration, path = generate_audio(args.server, text, fmt=args.format)
++        except Exception as e:
++            print('Run failed:', e)
++            continue
++        rtf = None
++        if duration and duration > 0:
++            rtf = elapsed / duration
++        results.append({'elapsed': elapsed, 'duration': duration, 'rtf': rtf, 'path': path, 'text': text})
++        print(f'Elapsed: {elapsed:.2f}s, duration: {duration}, rtf: {rtf}')
++
++    rtfs = [r['rtf'] for r in results if r['rtf'] is not None]
++    elapsed_list = [r['elapsed'] for r in results]
++    dur_list = [r['duration'] for r in results if r['duration'] is not None]
++    report = {
++        'samples_requested': args.samples,
++        'successful_samples': len(results),
++        'avg_elapsed_s': statistics.mean(elapsed_list) if elapsed_list else None,
++        'median_elapsed_s': statistics.median(elapsed_list) if elapsed_list else None,
++        'avg_duration_s': statistics.mean(dur_list) if dur_list else None,
++        'avg_rtf': statistics.mean(rtfs) if rtfs else None,
++        'median_rtf': statistics.median(rtfs) if rtfs else None,
++        'runs': results
++    }
++
++    with open(args.output, 'w') as f:
++        json.dump(report, f, indent=2)
++
++    print('Wrote report to', args.output)
++    print(json.dumps(report, indent=2))
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/tools/server/api_utils.py b/tools/server/api_utils.py
+index 17d8bb9..6ccdbde 100644
+--- a/tools/server/api_utils.py
++++ b/tools/server/api_utils.py
+@@ -1,7 +1,7 @@
+ import io
+ from argparse import ArgumentParser
+ from http import HTTPStatus
+-from typing import Annotated, Any, Iterable
++from typing import Annotated, Any, AsyncIterable
+ 
+ import numpy as np
+ import ormsgpack
+@@ -154,7 +154,7 @@ def serialize_audio_output(audio: np.ndarray, sample_rate: int, audio_format: st
+     return buffer.getvalue()
+ 
+ 
+-def chunk_bytes(data: bytes, chunk_size: int = 65536) -> Iterable[bytes]:
++async def chunk_bytes(data: bytes, chunk_size: int = 65536) -> AsyncIterable[bytes]:
+     for idx in range(0, len(data), chunk_size):
+         yield data[idx : idx + chunk_size]
+ 
+-- 
+2.43.0
+

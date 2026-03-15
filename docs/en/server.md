@@ -55,11 +55,14 @@ Expected response:
 - symbol replacement
 - unit normalization
 
+Both endpoints also accept an optional `language` hint. If the text clearly looks Spanish, the server automatically resolves the request language to `es` even when the caller sends the wrong hint. The resolved value is returned in the `X-Resolved-Language` response header.
+
 For example:
 
 ```json
 {
   "text": "Contact me at user@example.com and visit https://fish.audio/docs at 10:35 pm",
+  "language": "en",
   "format": "wav",
   "normalize": true,
   "normalization_options": {
@@ -81,6 +84,7 @@ curl -X POST http://127.0.0.1:8080/v1/audio/speech \
     "model": "tts-1",
     "input": "Hello from Fish Speech.",
     "voice": "alloy",
+    "language": "auto",
     "response_format": "mp3",
     "stream": false
   }' --output speech.mp3
@@ -90,6 +94,8 @@ curl -X POST http://127.0.0.1:8080/v1/audio/speech \
 
 - one of the standard OpenAI-compatible aliases such as `alloy` or `nova` (mapped to Fish Speech default synthesis), or
 - an existing Fish Speech `reference_id`, which enables reference-conditioned synthesis through the OpenAI-style endpoint.
+
+If you send Spanish text such as `Hola señor, ¿cómo estás?` with `"language": "en"`, the server will still resolve the request to `es`.
 
 ## WebUI Inference
 

@@ -16,7 +16,7 @@ from kui.asgi import (
 from loguru import logger
 from pydantic import BaseModel
 
-from fish_speech.text import normalize_text_for_tts
+from fish_speech.text import normalize_text_for_tts, resolve_tts_language
 from fish_speech.inference_engine import TTSInferenceEngine
 from fish_speech.utils.schema import OpenAISpeechRequest, ServeTTSRequest
 from tools.server.inference import inference_wrapper as inference
@@ -193,11 +193,13 @@ def resolve_openai_reference_id(
 
 def prepare_tts_request(req: ServeTTSRequest, max_text_length: int = 0) -> ServeTTSRequest:
     prepared = req.model_copy(deep=True)
+    prepared.language = resolve_tts_language(prepared.text, prepared.language)
 
     prepared.text = normalize_text_for_tts(
         prepared.text,
         normalize=prepared.normalize,
         normalization_options=prepared.normalization_options,
+        language=prepared.language,
     )
     if not prepared.text:
         raise ValueError("Text is empty after preprocessing")
@@ -214,6 +216,7 @@ def prepare_tts_request(req: ServeTTSRequest, max_text_length: int = 0) -> Serve
             reference.text,
             normalize=prepared.normalize,
             normalization_options=prepared.normalization_options,
+            language=prepared.language,
         )
         if not normalized_text:
             raise ValueError("Reference text is empty after preprocessing")
@@ -233,6 +236,7 @@ def build_openai_tts_request(
 
     return ServeTTSRequest(
         text=req.input,
+        language=req.language,
         chunk_length=req.chunk_length,
         format=req.response_format,
         reference_id=reference_id,

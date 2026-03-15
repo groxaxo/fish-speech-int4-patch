@@ -6,6 +6,7 @@ import inflect
 from pydantic import BaseModel, Field
 
 from .clean import clean_text
+from .language import canonicalize_language_hint
 
 VALID_TLDS = [
     "com",
@@ -65,6 +66,17 @@ SYMBOL_REPLACEMENTS = {
     "/": " slash ",
     "=": " equals ",
     "+": " plus ",
+}
+
+SPANISH_SYMBOL_REPLACEMENTS = {
+    "@": " arroba ",
+    "#": " número ",
+    "$": " dólar ",
+    "%": " por ciento ",
+    "&": " y ",
+    "/": " barra ",
+    "=": " igual a ",
+    "+": " más ",
 }
 
 MONEY_UNITS = {"$": ("dollar", "cent"), "£": ("pound", "pence"), "€": ("euro", "cent")}
@@ -346,10 +358,39 @@ def merge_normalization_options(
     return options
 
 
+def _normalize_shared_punctuation(text: str) -> str:
+    text = text.replace(chr(8216), "'").replace(chr(8217), "'")
+    text = text.replace("«", '"').replace("»", '"')
+    text = text.replace(chr(8220), '"').replace(chr(8221), '"')
+
+    for source, target in zip("、。！，：；？", ",.!,:;?"):
+        text = text.replace(source, target + " ")
+    text = text.replace("–", "- ")
+
+    text = re.sub(r"[^\S \n]", " ", text)
+    text = re.sub(r"  +", " ", text)
+    text = re.sub(r"(?<=\n) +(?=\n)", "", text)
+    return text.replace("\n", " ").replace("\r", " ")
+
+
+def _normalize_spanish_text(text: str, options: TextNormalizationOptions) -> str:
+    if options.optional_pluralization_normalization:
+        text = re.sub(r"\(s\)", "s", text)
+
+    text = _normalize_shared_punctuation(text)
+
+    if options.replace_remaining_symbols:
+        for symbol, replacement in SPANISH_SYMBOL_REPLACEMENTS.items():
+            text = text.replace(symbol, replacement)
+
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
 def normalize_text_for_tts(
     text: str,
     normalize: bool = True,
     normalization_options: TextNormalizationOptions | None = None,
+    language: str | None = None,
 ) -> str:
     text = clean_text(text or "")
     if not text:
@@ -358,6 +399,9 @@ def normalize_text_for_tts(
     options = merge_normalization_options(normalize, normalization_options)
     if not options.normalize:
         return re.sub(r"\s{2,}", " ", text.replace("\n", " ").replace("\r", " ")).strip()
+
+    if canonicalize_language_hint(language) == "es":
+        return _normalize_spanish_text(text, options)
 
     if options.email_normalization:
         text = EMAIL_PATTERN.sub(_handle_email, text)
@@ -374,20 +418,8 @@ def normalize_text_for_tts(
     if options.phone_normalization:
         text = PHONE_PATTERN.sub(_handle_phone_number, text)
 
-    text = text.replace(chr(8216), "'").replace(chr(8217), "'")
-    text = text.replace("«", '"').replace("»", '"')
-    text = text.replace(chr(8220), '"').replace(chr(8221), '"')
-
-    for source, target in zip("、。！，：；？", ",.!,:;?"):
-        text = text.replace(source, target + " ")
-    text = text.replace("–", "- ")
-
+    text = _normalize_shared_punctuation(text)
     text = TIME_PATTERN.sub(_handle_time, text)
-
-    text = re.sub(r"[^\S \n]", " ", text)
-    text = re.sub(r"  +", " ", text)
-    text = re.sub(r"(?<=\n) +(?=\n)", "", text)
-    text = text.replace("\n", " ").replace("\r", " ")
 
     text = re.sub(r"\bD[Rr]\.(?= [A-Z])", "Doctor", text)
     text = re.sub(r"\b(?:Mr\.|MR\.(?= [A-Z]))", "Mister", text)

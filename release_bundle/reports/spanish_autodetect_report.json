@@ -1,0 +1,16 @@
+{
+  "openai_speech": {
+    "status_code": 200,
+    "resolved_language": "es",
+    "content_type": "audio/mpeg",
+    "content_length": 17780,
+    "output_file": "/tmp/openai_spanish_autodetect.mp3"
+  },
+  "tts": {
+    "status_code": 200,
+    "resolved_language": "es",
+    "content_type": "audio/wav",
+    "content_length": 151596,
+    "output_file": "/tmp/tts_spanish_autodetect.wav"
+  }
+}

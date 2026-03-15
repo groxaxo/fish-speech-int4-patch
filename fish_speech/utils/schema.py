@@ -81,6 +81,7 @@ class ServeReferenceAudio(BaseModel):
 
 class ServeTTSRequest(BaseModel):
     text: str
+    language: str | None = None
     chunk_length: Annotated[int, conint(ge=100, le=300, strict=True)] = 200
     # Audio format
     format: Literal["wav", "pcm", "mp3"] = "wav"
@@ -119,6 +120,7 @@ class OpenAISpeechRequest(BaseModel):
     model: str = "fish-speech"
     input: str
     voice: str = "alloy"
+    language: str | None = None
     response_format: Literal["wav", "pcm", "mp3"] = "mp3"
     speed: Annotated[float, Field(ge=0.25, le=4.0, strict=True)] = 1.0
     stream: bool = False

@@ -1,0 +1,1311 @@
+From 81ec7c44ca9dafd0a1eef5fcb94a64f16129e7f2 Mon Sep 17 00:00:00 2001
+From: opencode <opencode@users.noreply.github.com>
+Date: Sun, 15 Mar 2026 18:39:27 +1300
+Subject: [PATCH] feat(api): add Kokoro-style normalization and
+ OpenAI-compatible endpoints
+
+- Add Kokoro-inspired text normalization (URLs, emails, numbers, units, phone)
+- Add /v1/models, /v1/models/{id}, /v1/audio/speech, /v1/audio/voices
+- Improve VQGAN cache keys, reduce per-request overhead, gate debug logs
+- Add unit tests and docs update
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+---
+ .gitignore                                    |   1 +
+ docs/en/server.md                             |  51 +++
+ fish_speech/models/text2semantic/inference.py |  23 +-
+ fish_speech/text/__init__.py                  |  12 +-
+ fish_speech/text/normalize.py                 | 416 ++++++++++++++++++
+ fish_speech/utils/schema.py                   |  23 +-
+ pyproject.toml                                |   1 +
+ tests/test_api_utils.py                       |  69 +++
+ tests/test_text_normalization.py              |  34 ++
+ tools/server/api_utils.py                     | 155 ++++++-
+ tools/server/exception_handler.py             |   7 +
+ tools/server/model_utils.py                   |  20 +-
+ tools/server/views.py                         | 187 ++++++--
+ 13 files changed, 939 insertions(+), 60 deletions(-)
+ create mode 100644 fish_speech/text/normalize.py
+ create mode 100644 tests/test_api_utils.py
+ create mode 100644 tests/test_text_normalization.py
+
+diff --git a/.gitignore b/.gitignore
+index 91c3d5f..5660cf9 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -91,6 +91,7 @@ filelists/
+ # Cache and Temporary Files
+ # --------------------------
+ /.cache/
++/.firecrawl/
+ /.gradio/
+ /.locale/
+ .pgx.*
+diff --git a/docs/en/server.md b/docs/en/server.md
+index dae1473..51c7882 100644
+--- a/docs/en/server.md
++++ b/docs/en/server.md
+@@ -21,6 +21,7 @@ Common options:
+ - `--half`: use fp16 mode
+ - `--api-key`: require bearer token authentication
+ - `--workers`: set worker process count
++- `--max-seq-len`: reduce KV-cache preallocation for smaller GPUs
+ 
+ ### Health check
+ 
+@@ -37,9 +38,59 @@ Expected response:
+ ### Main API endpoint
+ 
+ - `POST /v1/tts` for text-to-speech generation
++- `POST /v1/audio/speech` for OpenAI-compatible text-to-speech requests
++- `GET /v1/models` and `GET /v1/models/{id}` for OpenAI-compatible model discovery
++- `GET /v1/audio/voices` for available Fish Speech reference IDs
+ - `POST /v1/vqgan/encode` for VQ encode
+ - `POST /v1/vqgan/decode` for VQ decode
+ 
++### Text normalization
++
++`/v1/tts` and `/v1/audio/speech` now support Kokoro-inspired text sanitization and normalization before inference. The request schema keeps the legacy `normalize` flag and also accepts a nested `normalization_options` object for finer control over:
++
++- URL normalization
++- email normalization
++- optional pluralization (`(s)`)
++- phone number normalization
++- symbol replacement
++- unit normalization
++
++For example:
++
++```json
++{
++  "text": "Contact me at user@example.com and visit https://fish.audio/docs at 10:35 pm",
++  "format": "wav",
++  "normalize": true,
++  "normalization_options": {
++    "url_normalization": true,
++    "email_normalization": true,
++    "phone_normalization": true
++  }
++}
++```
++
++### OpenAI-compatible speech endpoint
++
++Example request:
++
++```bash
++curl -X POST http://127.0.0.1:8080/v1/audio/speech \
++  -H 'Content-Type: application/json' \
++  -d '{
++    "model": "tts-1",
++    "input": "Hello from Fish Speech.",
++    "voice": "alloy",
++    "response_format": "mp3",
++    "stream": false
++  }' --output speech.mp3
++```
++
++`voice` can either be:
++
++- one of the standard OpenAI-compatible aliases such as `alloy` or `nova` (mapped to Fish Speech default synthesis), or
++- an existing Fish Speech `reference_id`, which enables reference-conditioned synthesis through the OpenAI-style endpoint.
++
+ ## WebUI Inference
+ 
+ For WebUI usage, see:
+diff --git a/fish_speech/models/text2semantic/inference.py b/fish_speech/models/text2semantic/inference.py
+index 7aac2da..d03a4ac 100644
+--- a/fish_speech/models/text2semantic/inference.py
++++ b/fish_speech/models/text2semantic/inference.py
+@@ -365,6 +365,10 @@ def init_model(checkpoint_path, device, precision, compile=False, max_length=Non
+     )
+ 
+     model = model.to(device=device, dtype=precision)
++    model._bandwidth_model_size = sum(
++        p.numel() for p in model.parameters() if p.requires_grad
++    )
++    model._debug_prompt_structure = os.getenv("FISH_SPEECH_DEBUG_PROMPT", "0") == "1"
+     logger.info(f"Restored model from checkpoint")
+ 
+     if isinstance(model, DualARTransformer):
+@@ -556,7 +560,11 @@ def generate_long(
+     if prompt_tokens:
+         prompt_tokens = [i.cpu() for i in prompt_tokens]
+ 
+-    model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)
++    model_size = getattr(
++        model,
++        "_bandwidth_model_size",
++        sum(p.numel() for p in model.parameters() if p.requires_grad),
++    )
+     tokenizer = model.tokenizer
+     max_length = model.config.max_seq_len
+ 
+@@ -650,12 +658,13 @@ def generate_long(
+                 )
+             )
+ 
+-            logger.info("Visualizing prompt structure:")
+-            conversation_gen.visualize(
+-                tokenizer,
+-                merge_audio_tokens=True,
+-                merge_semantic_tokens=True,
+-            )
++            if getattr(model, "_debug_prompt_structure", False):
++                logger.debug("Visualizing prompt structure:")
++                conversation_gen.visualize(
++                    tokenizer,
++                    merge_audio_tokens=True,
++                    merge_semantic_tokens=True,
++                )
+ 
+             encoded, audio_masks, audio_parts = conversation_gen.encode_for_inference(
+                 tokenizer, num_codebooks=model.config.num_codebooks
+diff --git a/fish_speech/text/__init__.py b/fish_speech/text/__init__.py
+index ad704d7..bb2c295 100644
+--- a/fish_speech/text/__init__.py
++++ b/fish_speech/text/__init__.py
+@@ -1,3 +1,13 @@
+ from .clean import clean_text
++from .normalize import (
++    TextNormalizationOptions,
++    merge_normalization_options,
++    normalize_text_for_tts,
++)
+ 
+-__all__ = ["clean_text"]
++__all__ = [
++    "clean_text",
++    "TextNormalizationOptions",
++    "merge_normalization_options",
++    "normalize_text_for_tts",
++]
+diff --git a/fish_speech/text/normalize.py b/fish_speech/text/normalize.py
+new file mode 100644
+index 0000000..ff67804
+--- /dev/null
++++ b/fish_speech/text/normalize.py
+@@ -0,0 +1,416 @@
++import math
++import re
++from functools import lru_cache
++
++import inflect
++from pydantic import BaseModel, Field
++
++from .clean import clean_text
++
++VALID_TLDS = [
++    "com",
++    "org",
++    "net",
++    "edu",
++    "gov",
++    "mil",
++    "int",
++    "io",
++    "co",
++    "us",
++    "uk",
++    "de",
++    "fr",
++    "jp",
++]
++
++VALID_UNITS = {
++    "cm": "centimeter",
++    "mm": "millimeter",
++    "km": "kilometer",
++    "m": "meter",
++    "kg": "kilogram",
++    "g": "gram",
++    "ms": "millisecond",
++    "min": "minute",
++    "h": "hour",
++    "s": "second",
++    "mph": "mile per hour",
++    "km/h": "kilometer per hour",
++    "kph": "kilometer per hour",
++    "gb": "gigabyte",
++    "mb": "megabyte",
++    "kb": "kilobyte",
++    "tb": "terabyte",
++    "°c": "degree celsius",
++    "°f": "degree fahrenheit",
++    "hz": "hertz",
++    "khz": "kilohertz",
++    "mhz": "megahertz",
++    "ghz": "gigahertz",
++}
++
++SYMBOL_REPLACEMENTS = {
++    "~": " ",
++    "@": " at ",
++    "#": " number ",
++    "$": " dollar ",
++    "%": " percent ",
++    "^": " ",
++    "&": " and ",
++    "*": " ",
++    "_": " ",
++    "|": " ",
++    "\\": " ",
++    "/": " slash ",
++    "=": " equals ",
++    "+": " plus ",
++}
++
++MONEY_UNITS = {"$": ("dollar", "cent"), "£": ("pound", "pence"), "€": ("euro", "cent")}
++
++EMAIL_PATTERN = re.compile(
++    r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}\b", re.IGNORECASE
++)
++URL_PATTERN = re.compile(
++    r"(https?://|www\.)?(localhost|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}|[0-9]{1,3}(?:\.[0-9]{1,3}){3})(:[0-9]+)?([/?][^\s]*)?",
++    re.IGNORECASE,
++)
++UNIT_PATTERN = re.compile(
++    r"((?<!\w)([+-]?)(\d{1,3}(,\d{3})*|\d+)(\.\d+)?)\s*("
++    + "|".join(sorted(VALID_UNITS.keys(), reverse=True))
++    + r")(?=[^\w\d]|\b)",
++    re.IGNORECASE,
++)
++TIME_PATTERN = re.compile(
++    r"([0-9]{1,2}\s*:\s*[0-9]{2}(?:\s*:\s*[0-9]{2})?)(\s*(pm|am)\b)?",
++    re.IGNORECASE,
++)
++MONEY_PATTERN = re.compile(
++    r"(-?)(["
++    + "".join(MONEY_UNITS.keys())
++    + r"])(\d+(?:\.\d+)?)((?: hundred| thousand| (?:[bm]|tr|quadr)illion|k|m|b|t)*)\b",
++    re.IGNORECASE,
++)
++NUMBER_PATTERN = re.compile(
++    r"(-?)(\d+(?:\.\d+)?)((?: hundred| thousand| (?:[bm]|tr|quadr)illion|k|m|b)*)\b",
++    re.IGNORECASE,
++)
++PHONE_PATTERN = re.compile(
++    r"(\+?\d{1,2})?([ .-]?)(\(?\d{3}\)?)[\s.-](\d{3})[\s.-](\d{4})"
++)
++
++
++class TextNormalizationOptions(BaseModel):
++    normalize: bool = Field(
++        default=True,
++        description="Normalize input text to improve pronunciation and stability.",
++    )
++    unit_normalization: bool = Field(
++        default=False,
++        description="Expand units like 10km or 128GB into pronounceable text.",
++    )
++    url_normalization: bool = Field(
++        default=True,
++        description="Expand URLs into pronounceable text.",
++    )
++    email_normalization: bool = Field(
++        default=True,
++        description="Expand email addresses into pronounceable text.",
++    )
++    optional_pluralization_normalization: bool = Field(
++        default=True,
++        description="Replace optional plural markers like (s).",
++    )
++    phone_normalization: bool = Field(
++        default=True,
++        description="Expand phone numbers into pronounceable text.",
++    )
++    replace_remaining_symbols: bool = Field(
++        default=True,
++        description="Replace symbols like %, + and = after normalization.",
++    )
++
++
++@lru_cache(maxsize=1)
++def _inflect_engine():
++    return inflect.engine()
++
++
++def _conditional_int(number: float, threshold: float = 0.00001):
++    if abs(round(number) - number) < threshold:
++        return int(round(number))
++    return number
++
++
++def _translate_multiplier(multiplier: str) -> str:
++    return {
++        "k": "thousand",
++        "m": "million",
++        "b": "billion",
++        "t": "trillion",
++    }.get(multiplier.lower(), multiplier.strip())
++
++
++def _split_four_digit(number: float) -> str:
++    engine = _inflect_engine()
++    whole = str(_conditional_int(number))
++    return (
++        f"{engine.number_to_words(whole[:2])} "
++        f"{engine.number_to_words(whole[2:])}"
++    )
++
++
++def _handle_units(match: re.Match[str]) -> str:
++    engine = _inflect_engine()
++    unit_string = match.group(6).strip()
++    spoken_unit = VALID_UNITS.get(unit_string.lower(), unit_string)
++    count = match.group(1).strip()
++    return engine.no(spoken_unit, count)
++
++
++def _handle_numbers(match: re.Match[str]) -> str:
++    engine = _inflect_engine()
++    number = match.group(2)
++    try:
++        value = float(number)
++    except ValueError:
++        return match.group()
++
++    if match.group(1) == "-":
++        value *= -1
++
++    multiplier = _translate_multiplier(match.group(3))
++    value = _conditional_int(value)
++    if multiplier:
++        return f"{engine.number_to_words(value)} {multiplier}"
++
++    if (
++        isinstance(value, int)
++        and len(str(value)) == 4
++        and value > 1500
++        and value % 1000 > 9
++    ):
++        return _split_four_digit(value)
++
++    return engine.number_to_words(value)
++
++
++def _handle_money(match: re.Match[str]) -> str:
++    engine = _inflect_engine()
++    bill, coin = MONEY_UNITS[match.group(2)]
++    try:
++        value = float(match.group(3))
++    except ValueError:
++        return match.group()
++
++    if match.group(1) == "-":
++        value *= -1
++
++    multiplier = _translate_multiplier(match.group(4))
++    if multiplier:
++        return (
++            f"{engine.number_to_words(_conditional_int(value))} "
++            f"{multiplier} {engine.plural(bill, count=value)}"
++        )
++
++    if value % 1 == 0:
++        return (
++            f"{engine.number_to_words(_conditional_int(value))} "
++            f"{engine.plural(bill, count=value)}"
++        )
++
++    cents = int(str(value).split(".")[-1].ljust(2, "0"))
++    return (
++        f"{engine.number_to_words(int(math.floor(value)))} "
++        f"{engine.plural(bill, count=value)} and "
++        f"{engine.number_to_words(cents)} {engine.plural(coin, count=cents)}"
++    )
++
++
++def _handle_decimal(match: re.Match[str]) -> str:
++    whole, fractional = match.group().split(".")
++    return " point ".join([whole, " ".join(fractional)])
++
++
++def _handle_email(match: re.Match[str]) -> str:
++    user, domain = match.group(0).split("@", 1)
++    return f"{user} at {domain.replace('.', ' dot ')}"
++
++
++def _handle_url(match: re.Match[str]) -> str:
++    url = match.group(0).strip()
++    if not url:
++        return ""
++
++    url = re.sub(
++        r"^https?://",
++        lambda value: "https " if "https" in value.group().lower() else "http ",
++        url,
++        flags=re.IGNORECASE,
++    )
++    url = re.sub(r"^www\.", "www ", url, flags=re.IGNORECASE)
++    url = re.sub(r":(\d+)(?=/|$)", lambda value: f" colon {value.group(1)}", url)
++
++    parts = url.split("/", 1)
++    domain = parts[0].replace(".", " dot ")
++    path = parts[1] if len(parts) > 1 else ""
++    rebuilt = f"{domain} slash {path}" if path else domain
++
++    return re.sub(
++        r"\s+",
++        " ",
++        rebuilt.replace("-", " dash ")
++        .replace("_", " underscore ")
++        .replace("?", " question-mark ")
++        .replace("=", " equals ")
++        .replace("&", " ampersand ")
++        .replace("%", " percent ")
++        .replace(":", " colon ")
++        .replace("/", " slash "),
++    ).strip()
++
++
++def _handle_phone_number(match: re.Match[str]) -> str:
++    engine = _inflect_engine()
++    country_code, _, area_code, telephone_prefix, line_number = match.groups()
++    spoken_parts = []
++    if country_code:
++        spoken_parts.append(
++            engine.number_to_words(
++                country_code.replace("+", ""), group=1, comma=""
++            ).replace(",", "")
++        )
++    spoken_parts.append(
++        engine.number_to_words(
++            area_code.replace("(", "").replace(")", ""), group=1, comma=""
++        ).replace(",", "")
++    )
++    spoken_parts.append(
++        engine.number_to_words(telephone_prefix, group=1, comma="").replace(",", "")
++    )
++    spoken_parts.append(
++        engine.number_to_words(line_number, group=1, comma="").replace(",", "")
++    )
++    separator = " " if match.group(2) else ""
++    return separator + ", ".join(spoken_parts)
++
++
++def _handle_time(match: re.Match[str]) -> str:
++    engine = _inflect_engine()
++    time_value, _, meridiem = match.groups()
++    parts = [part.strip() for part in time_value.split(":")]
++    numbers = [engine.number_to_words(parts[0])]
++
++    minute = int(parts[1])
++    minute_spoken = engine.number_to_words(parts[1])
++    if minute == 0 and len(parts) == 2 and meridiem is None:
++        numbers.append("o'clock")
++    elif minute < 10:
++        numbers.append(f"oh {minute_spoken}")
++    else:
++        numbers.append(minute_spoken)
++
++    if len(parts) > 2:
++        seconds = engine.number_to_words(parts[2])
++        numbers.append(f"and {seconds} {engine.plural('second', int(parts[2]))}")
++
++    if meridiem:
++        numbers.append(meridiem.strip())
++
++    return " ".join(numbers)
++
++
++def merge_normalization_options(
++    normalize: bool,
++    normalization_options: TextNormalizationOptions | None = None,
++) -> TextNormalizationOptions:
++    options = (
++        normalization_options.model_copy(deep=True)
++        if normalization_options is not None
++        else TextNormalizationOptions()
++    )
++
++    if not normalize:
++        return TextNormalizationOptions(
++            normalize=False,
++            unit_normalization=False,
++            url_normalization=False,
++            email_normalization=False,
++            optional_pluralization_normalization=False,
++            phone_normalization=False,
++            replace_remaining_symbols=False,
++        )
++
++    options.normalize = True
++    return options
++
++
++def normalize_text_for_tts(
++    text: str,
++    normalize: bool = True,
++    normalization_options: TextNormalizationOptions | None = None,
++) -> str:
++    text = clean_text(text or "")
++    if not text:
++        return ""
++
++    options = merge_normalization_options(normalize, normalization_options)
++    if not options.normalize:
++        return re.sub(r"\s{2,}", " ", text.replace("\n", " ").replace("\r", " ")).strip()
++
++    if options.email_normalization:
++        text = EMAIL_PATTERN.sub(_handle_email, text)
++
++    if options.url_normalization:
++        text = URL_PATTERN.sub(_handle_url, text)
++
++    if options.unit_normalization:
++        text = UNIT_PATTERN.sub(_handle_units, text)
++
++    if options.optional_pluralization_normalization:
++        text = re.sub(r"\(s\)", "s", text)
++
++    if options.phone_normalization:
++        text = PHONE_PATTERN.sub(_handle_phone_number, text)
++
++    text = text.replace(chr(8216), "'").replace(chr(8217), "'")
++    text = text.replace("«", '"').replace("»", '"')
++    text = text.replace(chr(8220), '"').replace(chr(8221), '"')
++
++    for source, target in zip("、。！，：；？", ",.!,:;?"):
++        text = text.replace(source, target + " ")
++    text = text.replace("–", "- ")
++
++    text = TIME_PATTERN.sub(_handle_time, text)
++
++    text = re.sub(r"[^\S \n]", " ", text)
++    text = re.sub(r"  +", " ", text)
++    text = re.sub(r"(?<=\n) +(?=\n)", "", text)
++    text = text.replace("\n", " ").replace("\r", " ")
++
++    text = re.sub(r"\bD[Rr]\.(?= [A-Z])", "Doctor", text)
++    text = re.sub(r"\b(?:Mr\.|MR\.(?= [A-Z]))", "Mister", text)
++    text = re.sub(r"\b(?:Ms\.|MS\.(?= [A-Z]))", "Miss", text)
++    text = re.sub(r"\b(?:Mrs\.|MRS\.(?= [A-Z]))", "Mrs", text)
++    text = re.sub(r"\betc\.(?! [A-Z])", "etc", text)
++
++    text = re.sub(r"(?<=\d),(?=\d)", "", text)
++    text = MONEY_PATTERN.sub(_handle_money, text)
++    text = NUMBER_PATTERN.sub(_handle_numbers, text)
++    text = re.sub(r"\d*\.\d+", _handle_decimal, text)
++
++    if options.replace_remaining_symbols:
++        for symbol, replacement in SYMBOL_REPLACEMENTS.items():
++            text = text.replace(symbol, replacement)
++
++    text = re.sub(r"(?<=\d)-(?=\d)", " to ", text)
++    text = re.sub(r"(?<=\d)S", " S", text)
++    text = re.sub(r"(?<=[BCDFGHJ-NP-TV-Z])'?s\b", "'S", text)
++    text = re.sub(r"(?<=X')S\b", "s", text)
++    text = re.sub(
++        r"(?:[A-Za-z]\.){2,} [a-z]", lambda value: value.group().replace(".", "-"), text
++    )
++    text = re.sub(r"(?i)(?<=[A-Z])\.(?=[A-Z])", "-", text)
++
++    return re.sub(r"\s{2,}", " ", text).strip()
+diff --git a/fish_speech/utils/schema.py b/fish_speech/utils/schema.py
+index 01d40de..d9a4fe7 100644
+--- a/fish_speech/utils/schema.py
++++ b/fish_speech/utils/schema.py
+@@ -10,6 +10,7 @@ from pydantic.functional_validators import SkipValidation
+ from typing_extensions import Annotated
+ 
+ from fish_speech.content_sequence import TextPart, VQPart
++from fish_speech.text import TextNormalizationOptions
+ 
+ 
+ class ServeVQPart(BaseModel):
+@@ -84,7 +85,7 @@ class ServeTTSRequest(BaseModel):
+     # Audio format
+     format: Literal["wav", "pcm", "mp3"] = "wav"
+     # References audios for in-context learning
+-    references: list[ServeReferenceAudio] = []
++    references: list[ServeReferenceAudio] = Field(default_factory=list)
+     # Reference id
+     # For example, if you want use https://fish.audio/m/7f92f8afb8ec43bf81429cc1c9199cb1/
+     # Just pass 7f92f8afb8ec43bf81429cc1c9199cb1
+@@ -93,6 +94,9 @@ class ServeTTSRequest(BaseModel):
+     use_memory_cache: Literal["on", "off"] = "off"
+     # Normalize text for en & zh, this increase stability for numbers
+     normalize: bool = True
++    normalization_options: TextNormalizationOptions = Field(
++        default_factory=TextNormalizationOptions
++    )
+     # not usually used below
+     streaming: bool = False
+     max_new_tokens: int = 1024
+@@ -111,6 +115,23 @@ class AddReferenceRequest(BaseModel):
+     text: str = Field(..., min_length=1)
+ 
+ 
++class OpenAISpeechRequest(BaseModel):
++    model: str = "fish-speech"
++    input: str
++    voice: str = "alloy"
++    response_format: Literal["wav", "pcm", "mp3"] = "mp3"
++    speed: Annotated[float, Field(ge=0.25, le=4.0, strict=True)] = 1.0
++    stream: bool = True
++    chunk_length: Annotated[int, conint(ge=100, le=300, strict=True)] = 200
++    max_new_tokens: int = 1024
++    top_p: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
++    repetition_penalty: Annotated[float, Field(ge=0.9, le=2.0, strict=True)] = 1.1
++    temperature: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
++    normalization_options: TextNormalizationOptions = Field(
++        default_factory=TextNormalizationOptions
++    )
++
++
+ class AddReferenceResponse(BaseModel):
+     success: bool
+     message: str
+diff --git a/pyproject.toml b/pyproject.toml
+index fd6f4ca..112ce90 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -45,6 +45,7 @@ dependencies = [
+     "tiktoken>=0.8.0",
+     "pydantic==2.9.2",
+     "cachetools",
++    "inflect>=7.4.0",
+     "descript-audio-codec",
+     "descript-audiotools",
+     "safetensors"
+diff --git a/tests/test_api_utils.py b/tests/test_api_utils.py
+new file mode 100644
+index 0000000..8f7f069
+--- /dev/null
++++ b/tests/test_api_utils.py
+@@ -0,0 +1,69 @@
++import unittest
++
++import numpy as np
++
++from fish_speech.text import TextNormalizationOptions
++from fish_speech.utils.schema import OpenAISpeechRequest, ServeReferenceAudio, ServeTTSRequest
++from tools.server.api_utils import (
++    build_openai_model_list,
++    build_openai_tts_request,
++    prepare_tts_request,
++    resolve_openai_reference_id,
++    serialize_audio_output,
++)
++
++
++class ApiUtilsTests(unittest.TestCase):
++    def test_prepare_tts_request_normalizes_text_and_references(self):
++        req = ServeTTSRequest(
++            text="Contact user@example.com",
++            format="wav",
++            references=[
++                ServeReferenceAudio(audio=b"audio", text="Visit https://fish.audio/docs")
++            ],
++            normalization_options=TextNormalizationOptions(),
++        )
++
++        prepared = prepare_tts_request(req)
++
++        self.assertIn("user at example dot com", prepared.text)
++        self.assertIn("fish dot audio slash docs", prepared.references[0].text)
++
++    def test_prepare_tts_request_rejects_empty_preprocessed_text(self):
++        req = ServeTTSRequest(text="😀😀", format="wav")
++        with self.assertRaisesRegex(ValueError, "Text is empty after preprocessing"):
++            prepare_tts_request(req)
++
++    def test_build_openai_tts_request_uses_buffered_streaming_for_mp3(self):
++        req = OpenAISpeechRequest(
++            input="Hello world",
++            response_format="mp3",
++            stream=True,
++            normalization_options=TextNormalizationOptions(),
++        )
++
++        tts_req = build_openai_tts_request(req, reference_id=None)
++        self.assertFalse(tts_req.streaming)
++        self.assertEqual(tts_req.format, "mp3")
++
++    def test_openai_voice_alias_and_reference_lookup(self):
++        self.assertIsNone(resolve_openai_reference_id("alloy", ["demo"]))
++        self.assertEqual(resolve_openai_reference_id("demo", ["demo"]), "demo")
++        with self.assertRaisesRegex(ValueError, "Voice 'missing' not found"):
++            resolve_openai_reference_id("missing", ["demo"])
++
++    def test_pcm_serialization_returns_int16_bytes(self):
++        audio = np.array([0.0, 0.5, -0.5], dtype=np.float32)
++        data = serialize_audio_output(audio, sample_rate=24000, audio_format="pcm")
++        self.assertEqual(len(data), 6)
++
++    def test_openai_model_list_contains_openai_compatible_ids(self):
++        payload = build_openai_model_list()
++        model_ids = [item["id"] for item in payload["data"]]
++        self.assertIn("tts-1", model_ids)
++        self.assertIn("tts-1-hd", model_ids)
++        self.assertIn("fish-speech", model_ids)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_text_normalization.py b/tests/test_text_normalization.py
+new file mode 100644
+index 0000000..747be07
+--- /dev/null
++++ b/tests/test_text_normalization.py
+@@ -0,0 +1,34 @@
++import unittest
++
++from fish_speech.text import TextNormalizationOptions, normalize_text_for_tts
++
++
++class TextNormalizationTests(unittest.TestCase):
++    def test_normalizes_email_addresses(self):
++        text = normalize_text_for_tts("Contact user@example.com for support.")
++        self.assertIn("user at example dot com", text)
++
++    def test_normalizes_urls(self):
++        text = normalize_text_for_tts("Visit https://example.com/path now.")
++        self.assertIn("https example dot com slash path", text)
++
++    def test_normalizes_money(self):
++        text = normalize_text_for_tts("The price is $50.30.")
++        self.assertIn("fifty dollars and thirty cents", text)
++
++    def test_normalizes_phone_numbers(self):
++        text = normalize_text_for_tts("Call (555) 123-4567 today.")
++        self.assertIn("five five five", text)
++        self.assertIn("one two three", text)
++
++    def test_bypass_normalization_when_disabled(self):
++        text = normalize_text_for_tts(
++            "Visit https://example.com",
++            normalize=False,
++            normalization_options=TextNormalizationOptions(),
++        )
++        self.assertEqual(text, "Visit https://example.com")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/server/api_utils.py b/tools/server/api_utils.py
+index 380ee8c..17d8bb9 100644
+--- a/tools/server/api_utils.py
++++ b/tools/server/api_utils.py
+@@ -1,8 +1,11 @@
++import io
+ from argparse import ArgumentParser
+ from http import HTTPStatus
+-from typing import Annotated, Any
++from typing import Annotated, Any, Iterable
+ 
++import numpy as np
+ import ormsgpack
++import soundfile as sf
+ from baize.datastructures import ContentType
+ from kui.asgi import (
+     HTTPException,
+@@ -13,10 +16,53 @@ from kui.asgi import (
+ from loguru import logger
+ from pydantic import BaseModel
+ 
++from fish_speech.text import normalize_text_for_tts
+ from fish_speech.inference_engine import TTSInferenceEngine
+-from fish_speech.utils.schema import ServeTTSRequest
++from fish_speech.utils.schema import OpenAISpeechRequest, ServeTTSRequest
+ from tools.server.inference import inference_wrapper as inference
+ 
++OPENAI_MODEL_METADATA = (
++    {
++        "id": "tts-1",
++        "object": "model",
++        "created": 1710000000,
++        "owned_by": "fish-audio",
++    },
++    {
++        "id": "tts-1-hd",
++        "object": "model",
++        "created": 1710000000,
++        "owned_by": "fish-audio",
++    },
++    {
++        "id": "fish-speech",
++        "object": "model",
++        "created": 1710000000,
++        "owned_by": "fish-audio",
++    },
++    {
++        "id": "s2-pro",
++        "object": "model",
++        "created": 1710000000,
++        "owned_by": "fish-audio",
++    },
++)
++
++OPENAI_VOICE_ALIASES = {
++    "",
++    "default",
++    "alloy",
++    "ash",
++    "ballad",
++    "coral",
++    "echo",
++    "fable",
++    "nova",
++    "onyx",
++    "sage",
++    "shimmer",
++}
++
+ 
+ def parse_args():
+     parser = ArgumentParser()
+@@ -77,7 +123,6 @@ class MsgPackRequest(HttpRequest):
+ 
+ async def inference_async(req: ServeTTSRequest, engine: TTSInferenceEngine):
+     for chunk in inference(req, engine):
+-        print("Got chunk")
+         if isinstance(chunk, bytes):
+             yield chunk
+ 
+@@ -93,10 +138,114 @@ def get_content_type(audio_format):
+         return "audio/flac"
+     elif audio_format == "mp3":
+         return "audio/mpeg"
++    elif audio_format == "pcm":
++        return "audio/pcm"
+     else:
+         return "application/octet-stream"
+ 
+ 
++def serialize_audio_output(audio: np.ndarray, sample_rate: int, audio_format: str) -> bytes:
++    if audio_format == "pcm":
++        clipped = np.clip(audio, -1.0, 1.0)
++        return (clipped * 32767.0).astype(np.int16).tobytes()
++
++    buffer = io.BytesIO()
++    sf.write(buffer, audio, sample_rate, format=audio_format)
++    return buffer.getvalue()
++
++
++def chunk_bytes(data: bytes, chunk_size: int = 65536) -> Iterable[bytes]:
++    for idx in range(0, len(data), chunk_size):
++        yield data[idx : idx + chunk_size]
++
++
++def build_openai_error(
++    error: str, message: str, error_type: str = "invalid_request_error"
++) -> dict[str, str]:
++    return {"error": error, "message": message, "type": error_type}
++
++
++def build_openai_model_list() -> dict[str, object]:
++    return {"object": "list", "data": list(OPENAI_MODEL_METADATA)}
++
++
++def get_openai_model(model_id: str) -> dict[str, object] | None:
++    for model in OPENAI_MODEL_METADATA:
++        if model["id"] == model_id:
++            return model
++    return None
++
++
++def resolve_openai_reference_id(
++    voice: str, available_reference_ids: list[str]
++) -> str | None:
++    normalized_voice = voice.strip()
++    if normalized_voice.lower() in OPENAI_VOICE_ALIASES:
++        return None
++
++    if normalized_voice in available_reference_ids:
++        return normalized_voice
++
++    raise ValueError(
++        f"Voice '{voice}' not found. Available reference IDs: {', '.join(sorted(available_reference_ids)) or 'none'}"
++    )
++
++
++def prepare_tts_request(req: ServeTTSRequest, max_text_length: int = 0) -> ServeTTSRequest:
++    prepared = req.model_copy(deep=True)
++
++    prepared.text = normalize_text_for_tts(
++        prepared.text,
++        normalize=prepared.normalize,
++        normalization_options=prepared.normalization_options,
++    )
++    if not prepared.text:
++        raise ValueError("Text is empty after preprocessing")
++
++    if max_text_length > 0 and len(prepared.text) > max_text_length:
++        raise ValueError(f"Text is too long, max length is {max_text_length}")
++
++    if prepared.streaming and prepared.format != "wav":
++        raise ValueError("Streaming only supports WAV format")
++
++    normalized_refs = []
++    for reference in prepared.references:
++        normalized_text = normalize_text_for_tts(
++            reference.text,
++            normalize=prepared.normalize,
++            normalization_options=prepared.normalization_options,
++        )
++        if not normalized_text:
++            raise ValueError("Reference text is empty after preprocessing")
++        normalized_refs.append(reference.model_copy(update={"text": normalized_text}))
++    prepared.references = normalized_refs
++
++    return prepared
++
++
++def build_openai_tts_request(
++    req: OpenAISpeechRequest, reference_id: str | None
++) -> ServeTTSRequest:
++    if req.speed != 1.0:
++        raise ValueError(
++            "Fish Speech does not currently support speed control via /v1/audio/speech; use speed=1.0"
++        )
++
++    return ServeTTSRequest(
++        text=req.input,
++        chunk_length=req.chunk_length,
++        format=req.response_format,
++        reference_id=reference_id,
++        normalize=req.normalization_options.normalize,
++        normalization_options=req.normalization_options,
++        streaming=req.stream and req.response_format == "wav",
++        max_new_tokens=req.max_new_tokens,
++        top_p=req.top_p,
++        repetition_penalty=req.repetition_penalty,
++        temperature=req.temperature,
++    )
++
++
+ def wants_json(req):
+     """Helper method to determine if the client wants a JSON response
+ 
+diff --git a/tools/server/exception_handler.py b/tools/server/exception_handler.py
+index 07d595f..75fdcf6 100644
+--- a/tools/server/exception_handler.py
++++ b/tools/server/exception_handler.py
+@@ -7,6 +7,13 @@ from kui.asgi import HTTPException, JSONResponse
+ class ExceptionHandler:
+ 
+     async def http_exception_handler(self, exc: HTTPException):
++        if isinstance(exc.content, dict):
++            return JSONResponse(
++                {"detail": exc.content},
++                exc.status_code,
++                exc.headers,
++            )
++
+         return JSONResponse(
+             dict(
+                 statusCode=exc.status_code,
+diff --git a/tools/server/model_utils.py b/tools/server/model_utils.py
+index be78751..7c45ed8 100644
+--- a/tools/server/model_utils.py
++++ b/tools/server/model_utils.py
+@@ -1,3 +1,4 @@
++import hashlib
+ import io
+ import re
+ 
+@@ -6,7 +7,7 @@ import torch
+ import torchaudio
+ from cachetools import LRUCache, cached
+ 
+-CACHE_MAXSIZE = 10000
++CACHE_MAXSIZE = 256
+ MICRO_BATCH_SIZE = 8
+ ASR_SAMPLE_RATE = 16000
+ HUGE_GAP_THRESHOLD = 4000
+@@ -48,12 +49,25 @@ def batch_encode(model, audios_list: list[bytes]):
+     return [feature[..., :length] for feature, length in zip(features, feature_lengths)]
+ 
+ 
++def _hash_audio_bytes(audio: bytes) -> str:
++    return hashlib.blake2b(audio, digest_size=16).hexdigest()
++
++
+ @cached(
+     cache=LRUCache(maxsize=CACHE_MAXSIZE),
+-    key=lambda model, audios: (model.device, tuple(audios)),
++    key=lambda model, audios: (
++        str(model.device),
++        tuple(_hash_audio_bytes(audio) for audio in audios),
++    ),
+ )
++def _cached_vqgan_batch_encode(model, audios: tuple[bytes, ...]):
++    return batch_encode(model, list(audios))
++
++
+ def cached_vqgan_batch_encode(model, audios: list[bytes]):
+-    return batch_encode(model, audios)
++    if not all(isinstance(audio, bytes) for audio in audios):
++        return batch_encode(model, audios)
++    return _cached_vqgan_batch_encode(model, tuple(audios))
+ 
+ 
+ @torch.no_grad()
+diff --git a/tools/server/views.py b/tools/server/views.py
+index 5e47304..75fe038 100644
+--- a/tools/server/views.py
++++ b/tools/server/views.py
+@@ -1,7 +1,5 @@
+-import io
+ import os
+ import re
+-import shutil
+ import tempfile
+ import time
+ from http import HTTPStatus
+@@ -9,7 +7,6 @@ from pathlib import Path
+ 
+ import numpy as np
+ import ormsgpack
+-import soundfile as sf
+ import torch
+ from kui.asgi import (
+     Body,
+@@ -24,11 +21,12 @@ from kui.asgi import (
+ from loguru import logger
+ from typing_extensions import Annotated
+ 
++from fish_speech.text import normalize_text_for_tts
+ from fish_speech.utils.schema import (
+-    AddReferenceRequest,
+     AddReferenceResponse,
+     DeleteReferenceResponse,
+     ListReferencesResponse,
++    OpenAISpeechRequest,
+     ServeTTSRequest,
+     ServeVQGANDecodeRequest,
+     ServeVQGANDecodeResponse,
+@@ -37,10 +35,18 @@ from fish_speech.utils.schema import (
+     UpdateReferenceResponse,
+ )
+ from tools.server.api_utils import (
++    build_openai_error,
++    build_openai_model_list,
++    build_openai_tts_request,
+     buffer_to_async_generator,
++    chunk_bytes,
+     format_response,
++    get_openai_model,
+     get_content_type,
+     inference_async,
++    prepare_tts_request,
++    resolve_openai_reference_id,
++    serialize_audio_output,
+ )
+ from tools.server.inference import inference_wrapper as inference
+ from tools.server.model_manager import ModelManager
+@@ -48,10 +54,26 @@ from tools.server.model_utils import (
+     batch_vqgan_decode,
+     cached_vqgan_batch_encode,
+ )
++routes = Routes()
+ 
+-MAX_NUM_SAMPLES = int(os.getenv("NUM_SAMPLES", 1))
+ 
+-routes = Routes()
++def _get_tts_context():
++    app_state = request.app.state
++    model_manager: ModelManager = app_state.model_manager
++    engine = model_manager.tts_inference_engine
++    sample_rate = engine.decoder_model.sample_rate
++    return app_state, engine, sample_rate
++
++
++def _audio_headers(audio_format: str, chunked: bool = False) -> dict[str, str]:
++    headers = {
++        "Content-Disposition": f"attachment; filename=audio.{audio_format}",
++        "Cache-Control": "no-cache",
++    }
++    if chunked:
++        headers["Transfer-Encoding"] = "chunked"
++        headers["X-Accel-Buffering"] = "no"
++    return headers
+ 
+ 
+ @routes.http("/v1/health")
+@@ -131,59 +153,130 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
+     Generate speech from text using TTS model.
+     """
+     try:
+-        # Get the model from the app
+-        app_state = request.app.state
+-        model_manager: ModelManager = app_state.model_manager
+-        engine = model_manager.tts_inference_engine
+-        sample_rate = engine.decoder_model.sample_rate
++        app_state, engine, sample_rate = _get_tts_context()
++        req = prepare_tts_request(req, app_state.max_text_length)
+ 
+-        # Check if the text is too long
+-        if app_state.max_text_length > 0 and len(req.text) > app_state.max_text_length:
+-            raise HTTPException(
+-                HTTPStatus.BAD_REQUEST,
+-                content=f"Text is too long, max length is {app_state.max_text_length}",
++        if req.streaming:
++            return StreamResponse(
++                iterable=inference_async(req, engine),
++                headers=_audio_headers(req.format, chunked=True),
++                content_type=get_content_type(req.format),
+             )
+ 
+-        # Check if streaming is enabled
+-        if req.streaming and req.format != "wav":
++        fake_audios = next(inference(req, engine))
++        audio_bytes = serialize_audio_output(fake_audios, sample_rate, req.format)
++        return StreamResponse(
++            iterable=buffer_to_async_generator(audio_bytes),
++            headers=_audio_headers(req.format),
++            content_type=get_content_type(req.format),
++        )
++    except ValueError as e:
++        raise HTTPException(HTTPStatus.BAD_REQUEST, content=str(e))
++    except HTTPException:
++        raise
++    except Exception as e:
++        logger.error(f"Error in TTS generation: {e}", exc_info=True)
++        raise HTTPException(
++            HTTPStatus.INTERNAL_SERVER_ERROR, content="Failed to generate speech"
++        )
++
++
++@routes.http.get("/v1/models")
++async def list_models():
++    return JSONResponse(build_openai_model_list())
++
++
++@routes.http.get("/v1/models/{model_id}")
++async def get_model(model_id: str):
++    model = get_openai_model(model_id)
++    if model is None:
++        raise HTTPException(
++            HTTPStatus.NOT_FOUND,
++            content=build_openai_error(
++                "model_not_found",
++                f"Model '{model_id}' not found",
++                "invalid_request_error",
++            ),
++        )
++    return JSONResponse(model)
++
++
++@routes.http.get("/v1/audio/voices")
++async def list_openai_voices():
++    _, engine, _ = _get_tts_context()
++    return JSONResponse({"voices": engine.list_reference_ids()})
++
++
++@routes.http.post("/v1/audio/speech")
++async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)]):
++    try:
++        if get_openai_model(req.model) is None:
+             raise HTTPException(
+                 HTTPStatus.BAD_REQUEST,
+-                content="Streaming only supports WAV format",
++                content=build_openai_error(
++                    "invalid_model",
++                    f"Unsupported model: {req.model}",
++                    "invalid_request_error",
++                ),
+             )
+ 
+-        # Perform TTS
+-        if req.streaming:
++        app_state, engine, sample_rate = _get_tts_context()
++        available_reference_ids = engine.list_reference_ids()
++        reference_id = resolve_openai_reference_id(req.voice, available_reference_ids)
++        tts_req = build_openai_tts_request(req, reference_id)
++        tts_req = prepare_tts_request(tts_req, app_state.max_text_length)
++
++        if req.stream and tts_req.streaming:
+             return StreamResponse(
+-                iterable=inference_async(req, engine),
+-                headers={
+-                    "Content-Disposition": f"attachment; filename=audio.{req.format}",
+-                },
+-                content_type=get_content_type(req.format),
+-            )
+-        else:
+-            fake_audios = next(inference(req, engine))
+-            buffer = io.BytesIO()
+-            sf.write(
+-                buffer,
+-                fake_audios,
+-                sample_rate,
+-                format=req.format,
++                iterable=inference_async(tts_req, engine),
++                headers=_audio_headers(tts_req.format, chunked=True),
++                content_type=get_content_type(tts_req.format),
+             )
+ 
++        fake_audios = next(inference(tts_req, engine))
++        audio_bytes = serialize_audio_output(fake_audios, sample_rate, tts_req.format)
++
++        if req.stream:
+             return StreamResponse(
+-                iterable=buffer_to_async_generator(buffer.getvalue()),
+-                headers={
+-                    "Content-Disposition": f"attachment; filename=audio.{req.format}",
+-                },
+-                content_type=get_content_type(req.format),
++                iterable=chunk_bytes(audio_bytes),
++                headers=_audio_headers(tts_req.format, chunked=True),
++                content_type=get_content_type(tts_req.format),
+             )
+-    except HTTPException:
+-        # Re-raise HTTP exceptions as they are already properly formatted
+-        raise
++
++        return StreamResponse(
++            iterable=buffer_to_async_generator(audio_bytes),
++            headers=_audio_headers(tts_req.format),
++            content_type=get_content_type(tts_req.format),
++        )
++    except ValueError as e:
++        raise HTTPException(
++            HTTPStatus.BAD_REQUEST,
++            content=build_openai_error(
++                "validation_error", str(e), "invalid_request_error"
++            ),
++        )
++    except RuntimeError as e:
++        logger.error(f"Processing error in /v1/audio/speech: {e}", exc_info=True)
++        raise HTTPException(
++            HTTPStatus.INTERNAL_SERVER_ERROR,
++            content=build_openai_error("processing_error", str(e), "server_error"),
++        )
++    except HTTPException as e:
++        if isinstance(e.content, dict):
++            raise
++        raise HTTPException(
++            e.status_code,
++            content=build_openai_error(
++                "validation_error" if e.status_code < 500 else "processing_error",
++                str(e.content),
++                "invalid_request_error" if e.status_code < 500 else "server_error",
++            ),
++        )
+     except Exception as e:
+-        logger.error(f"Error in TTS generation: {e}", exc_info=True)
++        logger.error(f"Unexpected error in /v1/audio/speech: {e}", exc_info=True)
+         raise HTTPException(
+-            HTTPStatus.INTERNAL_SERVER_ERROR, content="Failed to generate speech"
++            HTTPStatus.INTERNAL_SERVER_ERROR,
++            content=build_openai_error("processing_error", str(e), "server_error"),
+         )
+ 
+ 
+@@ -204,6 +297,10 @@ async def add_reference(
+         if not text or not text.strip():
+             raise ValueError("Reference text cannot be empty")
+ 
++        text = normalize_text_for_tts(text)
++        if not text:
++            raise ValueError("Reference text is empty after preprocessing")
++
+         # Get the model manager to access the reference loader
+         app_state = request.app.state
+         model_manager: ModelManager = app_state.model_manager
+-- 
+2.43.0
+

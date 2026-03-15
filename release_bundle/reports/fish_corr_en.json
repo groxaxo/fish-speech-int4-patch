@@ -1,0 +1,10 @@
+{
+  "reference": "Hello world. This is a benchmark sample for realtime factor measurement.",
+  "transcript_raw": "Hello world. This is a benchmark sample for real-time factor measurement.",
+  "wer": 0.09090909090909091,
+  "audio_file": "/tmp/tmp015usjyk.mp3",
+  "generation_time_s": 11.389820575714111,
+  "whisper_response": {
+    "text": "Hello world. This is a benchmark sample for real-time factor measurement."
+  }
+}

@@ -51,6 +51,16 @@ class ApiUtilsTests(unittest.TestCase):
         req = OpenAISpeechRequest(input="Hello world")
         self.assertFalse(req.stream)
 
+    def test_prepare_tts_request_forces_spanish_language_hint(self):
+        req = ServeTTSRequest(text="Hola señor, ¿cómo estás?", format="wav", language="en")
+        prepared = prepare_tts_request(req)
+        self.assertEqual(prepared.language, "es")
+
+    def test_prepare_tts_request_keeps_explicit_english_language(self):
+        req = ServeTTSRequest(text="Hello world", format="wav", language="en")
+        prepared = prepare_tts_request(req)
+        self.assertEqual(prepared.language, "en")
+
     def test_chunk_bytes_returns_async_iterable(self):
         from tools.server.api_utils import chunk_bytes
 

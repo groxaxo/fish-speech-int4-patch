@@ -1,0 +1,10 @@
+{
+  "reference": "Hola, este es un texto de ejemplo para medir el factor en tiempo real.",
+  "transcript_raw": "Hola, este es un texto de ejemplo para medir el factor en tiempo real.",
+  "wer": 0.0,
+  "audio_file": "/tmp/tmpfc0j1hl8.mp3",
+  "generation_time_s": 9.651173114776611,
+  "whisper_response": {
+    "text": "Hola, este es un texto de ejemplo para medir el factor en tiempo real."
+  }
+}
