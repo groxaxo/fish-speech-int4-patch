@@ -18,6 +18,7 @@ class ModelManager:
         llama_checkpoint_path: str,
         decoder_checkpoint_path: str,
         decoder_config_name: str,
+        max_seq_len: int = 4096,
     ) -> None:
 
         self.mode = mode
@@ -37,7 +38,8 @@ class ModelManager:
 
         # Load the TTS models
         self.load_llama_model(
-            llama_checkpoint_path, self.device, self.precision, self.compile, self.mode
+            llama_checkpoint_path, self.device, self.precision, self.compile, self.mode,
+            max_seq_len=max_seq_len,
         )
         self.load_decoder_model(
             decoder_config_name, decoder_checkpoint_path, self.device
@@ -54,7 +56,7 @@ class ModelManager:
             self.warm_up(self.tts_inference_engine)
 
     def load_llama_model(
-        self, checkpoint_path, device, precision, compile, mode
+        self, checkpoint_path, device, precision, compile, mode, max_seq_len: int = 4096
     ) -> None:
 
         if mode == "tts":
@@ -63,6 +65,7 @@ class ModelManager:
                 device=device,
                 precision=precision,
                 compile=compile,
+                max_seq_len=max_seq_len,
             )
         else:
             raise ValueError(f"Invalid mode: {mode}")

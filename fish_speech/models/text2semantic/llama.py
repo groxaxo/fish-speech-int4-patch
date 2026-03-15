@@ -534,7 +534,7 @@ class BaseTransformer(nn.Module):
 
             if "int4" in str(Path(path)):
                 logger.info("Using int4 quantization!")
-                path_comps = path.name.split("-")
+                path_comps = Path(path).name.split("-")
                 assert path_comps[-2].startswith("g")
                 groupsize = int(path_comps[-2][1:])
                 from tools.llama.quantize import WeightOnlyInt4QuantHandler

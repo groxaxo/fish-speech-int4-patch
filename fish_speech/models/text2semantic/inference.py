@@ -359,8 +359,10 @@ def generate(
     return seq
 
 
-def init_model(checkpoint_path, device, precision, compile=False):
-    model = DualARTransformer.from_pretrained(checkpoint_path, load_weights=True)
+def init_model(checkpoint_path, device, precision, compile=False, max_length=None):
+    model = DualARTransformer.from_pretrained(
+        checkpoint_path, load_weights=True, max_length=max_length
+    )
 
     model = model.to(device=device, dtype=precision)
     logger.info(f"Restored model from checkpoint")
@@ -750,13 +752,15 @@ def launch_thread_safe_queue(
     device,
     precision,
     compile: bool = False,
+    max_seq_len: int = 4096,
 ):
     input_queue = queue.Queue()
     init_event = threading.Event()
 
     def worker():
         model, decode_one_token = init_model(
-            checkpoint_path, device, precision, compile=compile
+            checkpoint_path, device, precision, compile=compile,
+            max_length=max_seq_len,
         )
         with torch.device(device):
             model.setup_caches(
