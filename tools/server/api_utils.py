@@ -1,7 +1,7 @@
 import io
 from argparse import ArgumentParser
 from http import HTTPStatus
-from typing import Annotated, Any, Iterable
+from typing import Annotated, Any, AsyncIterable
 
 import numpy as np
 import ormsgpack
@@ -154,7 +154,7 @@ def serialize_audio_output(audio: np.ndarray, sample_rate: int, audio_format: st
     return buffer.getvalue()
 
 
-def chunk_bytes(data: bytes, chunk_size: int = 65536) -> Iterable[bytes]:
+async def chunk_bytes(data: bytes, chunk_size: int = 65536) -> AsyncIterable[bytes]:
     for idx in range(0, len(data), chunk_size):
         yield data[idx : idx + chunk_size]
 

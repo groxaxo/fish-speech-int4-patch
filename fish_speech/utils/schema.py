@@ -121,7 +121,7 @@ class OpenAISpeechRequest(BaseModel):
     voice: str = "alloy"
     response_format: Literal["wav", "pcm", "mp3"] = "mp3"
     speed: Annotated[float, Field(ge=0.25, le=4.0, strict=True)] = 1.0
-    stream: bool = True
+    stream: bool = False
     chunk_length: Annotated[int, conint(ge=100, le=300, strict=True)] = 200
     max_new_tokens: int = 1024
     top_p: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8

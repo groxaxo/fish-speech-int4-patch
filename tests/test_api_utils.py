@@ -1,4 +1,5 @@
 import unittest
+import asyncio
 
 import numpy as np
 
@@ -45,6 +46,21 @@ class ApiUtilsTests(unittest.TestCase):
         tts_req = build_openai_tts_request(req, reference_id=None)
         self.assertFalse(tts_req.streaming)
         self.assertEqual(tts_req.format, "mp3")
+
+    def test_openai_speech_request_defaults_to_non_streaming(self):
+        req = OpenAISpeechRequest(input="Hello world")
+        self.assertFalse(req.stream)
+
+    def test_chunk_bytes_returns_async_iterable(self):
+        from tools.server.api_utils import chunk_bytes
+
+        async def collect():
+            items = []
+            async for chunk in chunk_bytes(b"abcdef", chunk_size=2):
+                items.append(chunk)
+            return items
+
+        self.assertEqual(asyncio.run(collect()), [b"ab", b"cd", b"ef"])
 
     def test_openai_voice_alias_and_reference_lookup(self):
         self.assertIsNone(resolve_openai_reference_id("alloy", ["demo"]))
