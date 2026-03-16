@@ -19,6 +19,7 @@ Common options:
 
 - `--compile`: enable `torch.compile` optimization
 - `--half`: use fp16 mode
+- `--bnb4`: enable bitsandbytes NF4 4-bit quantization (requires `pip install bitsandbytes`; reduces VRAM to ~12 GB)
 - `--api-key`: require bearer token authentication
 - `--workers`: set worker process count
 - `--max-seq-len`: reduce KV-cache preallocation for smaller GPUs

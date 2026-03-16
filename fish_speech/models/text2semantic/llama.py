@@ -246,6 +246,36 @@ def _remap_fish_qwen3_omni_keys(weights: OrderedDict) -> OrderedDict:
     return new_weights
 
 
+def _convert_linear_layers_to_bnb4(
+    module: nn.Module,
+    compute_dtype: torch.dtype = torch.float16,
+) -> None:
+    try:
+        import bitsandbytes as bnb
+    except ImportError as exc:
+        raise ImportError(
+            "bitsandbytes is required for bnb4 loading. Install bitsandbytes to use this mode."
+        ) from exc
+
+    def _replace(parent: nn.Module) -> None:
+        for name, child in list(parent.named_children()):
+            if isinstance(child, nn.Linear):
+                quantized = bnb.nn.Linear4bit(
+                    child.in_features,
+                    child.out_features,
+                    bias=child.bias is not None,
+                    compute_dtype=compute_dtype,
+                    quant_type="nf4",
+                    compress_statistics=True,
+                )
+                quantized.load_state_dict(child.state_dict(), strict=False)
+                setattr(parent, name, quantized)
+            else:
+                _replace(child)
+
+    _replace(module)
+
+
 class BaseTransformer(nn.Module):
     def __init__(
         self,
@@ -483,6 +513,8 @@ class BaseTransformer(nn.Module):
         max_length: int | None = None,
         lora_config: LoraConfig | None = None,
         rope_base: int | None = None,
+        bnb4: bool = False,
+        bnb4_compute_dtype: torch.dtype = torch.float16,
     ) -> "BaseTransformer":
         # Import wrapper locally to avoid circular dependency or global import issues
         from fish_speech.tokenizer import FishTokenizer
@@ -521,20 +553,36 @@ class BaseTransformer(nn.Module):
         model = model_cls(config)
         # Attach tokenizer to model instance for inference convenience (optional, but good for user scripts)
         model.tokenizer = tokenizer
+        path_obj = Path(path)
+        path_name = path_obj.name
+        use_legacy_int8 = "int8" in path_name
+        use_legacy_int4 = "int4" in path_name
+
+        if bnb4 and (use_legacy_int8 or use_legacy_int4):
+            raise ValueError(
+                "bnb4 loading expects an unquantized checkpoint directory, not an int8/int4 checkpoint."
+            )
+
+        if bnb4:
+            logger.info("Using bitsandbytes NF4 4-bit quantization!")
+            _convert_linear_layers_to_bnb4(
+                model,
+                compute_dtype=bnb4_compute_dtype,
+            )
 
         if load_weights is False:
             logger.info("Randomly initialized model")
         else:
-            if "int8" in str(Path(path)):
+            if use_legacy_int8:
                 logger.info("Using int8 weight-only quantization!")
                 from tools.llama.quantize import WeightOnlyInt8QuantHandler
 
                 simple_quantizer = WeightOnlyInt8QuantHandler(model)
                 model = simple_quantizer.convert_for_runtime()
 
-            if "int4" in str(Path(path)):
+            if use_legacy_int4:
                 logger.info("Using int4 quantization!")
-                path_comps = Path(path).name.split("-")
+                path_comps = path_name.split("-")
                 assert path_comps[-2].startswith("g")
                 groupsize = int(path_comps[-2][1:])
                 from tools.llama.quantize import WeightOnlyInt4QuantHandler
@@ -542,13 +590,10 @@ class BaseTransformer(nn.Module):
                 simple_quantizer = WeightOnlyInt4QuantHandler(model, groupsize)
                 model = simple_quantizer.convert_for_runtime()
 
-            path_obj = Path(path)
             index_json = path_obj / "model.safetensors.index.json"
             single_st = path_obj / "model.safetensors"
             pth_file = path_obj / "model.pth"
-            prefer_pth = (
-                "int8" in str(path_obj) or "int4" in str(path_obj)
-            ) and pth_file.exists()
+            prefer_pth = (use_legacy_int8 or use_legacy_int4) and pth_file.exists()
 
             if prefer_pth:
                 weights = torch.load(
@@ -602,7 +647,10 @@ class BaseTransformer(nn.Module):
             else:
                 raise FileNotFoundError(f"No model weights found in {path_obj}")
 
-            err = model.load_state_dict(weights, strict=False, assign=True)
+            load_kwargs = {"strict": False}
+            if not bnb4:
+                load_kwargs["assign"] = True
+            err = model.load_state_dict(weights, **load_kwargs)
             logger.info(f"Model weights loaded - Status: {err}")
 
         if lora_config is not None:

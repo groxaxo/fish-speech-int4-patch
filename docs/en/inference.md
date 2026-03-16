@@ -37,6 +37,19 @@ python fish_speech/models/text2semantic/inference.py \
 
 This command will create a `codes_N` file in the working directory, where N is an integer starting from 0.
 
+!!! tip
+    On 12GB-class GPUs, you can reduce VRAM pressure by loading the text model with bitsandbytes 4-bit quantization and a smaller KV cache:
+
+    ```bash
+    python fish_speech/models/text2semantic/inference.py \
+        --text "The text you want to convert" \
+        --bnb4 \
+        --half \
+        --max-seq-len 4096
+    ```
+
+    This mode requires `bitsandbytes` to be installed.
+
 !!! note
     You may want to use `--compile` to fuse CUDA kernels for faster inference. However, we recommend using our sglang inference acceleration optimization.
     Correspondingly, if you do not plan to use acceleration, you can comment out the `--compile` parameter.

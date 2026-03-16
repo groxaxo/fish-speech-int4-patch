@@ -1,7 +1,10 @@
 <div align="center">
-<h1>Fish Speech</h1>
+<h1>Fish Speech — BnB INT4 Fork</h1>
 
 **English** | [简体中文](docs/README.zh.md) | [Portuguese](docs/README.pt-BR.md) | [日本語](docs/README.ja.md) | [한국어](docs/README.ko.md) | [العربية](docs/README.ar.md) <br>
+
+> **This is a community fork** of [fishaudio/fish-speech](https://github.com/fishaudio/fish-speech) that adds **bitsandbytes NF4 4-bit quantization** support, enabling inference on GPUs with as little as 12 GB of VRAM.  
+> Huge thanks to the amazing team at [Fish Audio](https://fish.audio/) for building and open-sourcing the original Fish Speech model — all credit for the core research and architecture belongs to them.
 
 <a href="https://www.producthunt.com/products/fish-speech?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-fish&#0045;audio&#0045;s1" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1023740&theme=light&period=daily&t=1761164814710" alt="Fish&#0032;Audio&#0032;S1 - Expressive&#0032;Voice&#0032;Cloning&#0032;and&#0032;Text&#0045;to&#0045;Speech | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 <a href="https://trendshift.io/repositories/7014" target="_blank">
@@ -48,6 +51,41 @@
 > [!WARNING]
 > **Legal Disclaimer**  
 > We do not hold any responsibility for any illegal usage of the codebase. Please refer to your local laws about DMCA and other related laws.
+
+## Fork Changes: BnB NF4 4-bit Quantization
+
+This fork adds `--bnb4` support to the text-to-semantic model, letting you run the full S2-Pro model in **~12 GB of VRAM** instead of 24 GB.
+
+### Install bitsandbytes
+
+```bash
+pip install -e .[bnb]
+# or manually:
+pip install bitsandbytes>=0.43.0
+```
+
+### Usage
+
+**CLI inference:**
+```bash
+python fish_speech/models/text2semantic/inference.py \
+    --text "Hello world" \
+    --bnb4 --half
+```
+
+**API server:**
+```bash
+python tools/api_server.py \
+    --llama-checkpoint-path checkpoints/s2-pro \
+    --decoder-checkpoint-path checkpoints/s2-pro/codec.pth \
+    --bnb4 --half \
+    --listen 0.0.0.0:8080
+```
+
+> [!NOTE]  
+> `--bnb4` only works with unquantized checkpoints. Do **not** combine it with `int4`/`int8` checkpoint directories.
+
+---
 
 ## Quick Start
 

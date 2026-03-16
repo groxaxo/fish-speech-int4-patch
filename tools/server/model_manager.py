@@ -15,6 +15,7 @@ class ModelManager:
         device: str,
         half: bool,
         compile: bool,
+        bnb4: bool,
         llama_checkpoint_path: str,
         decoder_checkpoint_path: str,
         decoder_config_name: str,
@@ -25,6 +26,7 @@ class ModelManager:
         self.device = device
         self.half = half
         self.compile = compile
+        self.bnb4 = bnb4
 
         self.precision = torch.half if half else torch.bfloat16
 
@@ -38,8 +40,13 @@ class ModelManager:
 
         # Load the TTS models
         self.load_llama_model(
-            llama_checkpoint_path, self.device, self.precision, self.compile, self.mode,
+            llama_checkpoint_path,
+            self.device,
+            self.precision,
+            self.compile,
+            self.mode,
             max_seq_len=max_seq_len,
+            bnb4=bnb4,
         )
         self.load_decoder_model(
             decoder_config_name, decoder_checkpoint_path, self.device
@@ -56,7 +63,14 @@ class ModelManager:
             self.warm_up(self.tts_inference_engine)
 
     def load_llama_model(
-        self, checkpoint_path, device, precision, compile, mode, max_seq_len: int = 4096
+        self,
+        checkpoint_path,
+        device,
+        precision,
+        compile,
+        mode,
+        max_seq_len: int = 4096,
+        bnb4: bool = False,
     ) -> None:
 
         if mode == "tts":
@@ -66,6 +80,7 @@ class ModelManager:
                 precision=precision,
                 compile=compile,
                 max_seq_len=max_seq_len,
+                bnb4=bnb4,
             )
         else:
             raise ValueError(f"Invalid mode: {mode}")

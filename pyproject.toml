@@ -52,6 +52,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+bnb = [
+    "bitsandbytes>=0.43.0",
+]
 stable = [
     "torch==2.8.0",
     "torchaudio",

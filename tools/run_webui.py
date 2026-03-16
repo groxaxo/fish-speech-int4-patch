@@ -35,6 +35,13 @@ def parse_args():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--half", action="store_true")
     parser.add_argument("--compile", action="store_true")
+    parser.add_argument("--bnb4", action="store_true")
+    parser.add_argument(
+        "--max-seq-len",
+        type=int,
+        default=4096,
+        help="Override model max_seq_len for KV-cache pre-allocation.",
+    )
     parser.add_argument("--max-gradio-length", type=int, default=0)
     parser.add_argument("--theme", type=str, default="light")
 
@@ -62,6 +69,8 @@ if __name__ == "__main__":
         device=args.device,
         precision=args.precision,
         compile=args.compile,
+        max_seq_len=args.max_seq_len,
+        bnb4=args.bnb4,
     )
 
     logger.info("Loading VQ-GAN model...")

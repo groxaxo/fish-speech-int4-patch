@@ -359,12 +359,27 @@ def generate(
     return seq
 
 
-def init_model(checkpoint_path, device, precision, compile=False, max_length=None):
+def init_model(
+    checkpoint_path,
+    device,
+    precision,
+    compile=False,
+    max_length=None,
+    bnb4: bool = False,
+):
     model = DualARTransformer.from_pretrained(
-        checkpoint_path, load_weights=True, max_length=max_length
+        checkpoint_path,
+        load_weights=True,
+        max_length=max_length,
+        bnb4=bnb4,
+        bnb4_compute_dtype=precision,
     )
 
-    model = model.to(device=device, dtype=precision)
+    if bnb4:
+        model = model.to(dtype=precision)
+        model = model.to(device=device)
+    else:
+        model = model.to(device=device, dtype=precision)
     model._bandwidth_model_size = sum(
         p.numel() for p in model.parameters() if p.requires_grad
     )
@@ -762,14 +777,19 @@ def launch_thread_safe_queue(
     precision,
     compile: bool = False,
     max_seq_len: int = 4096,
+    bnb4: bool = False,
 ):
     input_queue = queue.Queue()
     init_event = threading.Event()
 
     def worker():
         model, decode_one_token = init_model(
-            checkpoint_path, device, precision, compile=compile,
+            checkpoint_path,
+            device,
+            precision,
+            compile=compile,
             max_length=max_seq_len,
+            bnb4=bnb4,
         )
         with torch.device(device):
             model.setup_caches(
@@ -846,6 +866,18 @@ def launch_thread_safe_queue(
 @click.option("--compile/--no-compile", default=False)
 @click.option("--seed", type=int, default=42)
 @click.option("--half/--no-half", default=False)
+@click.option(
+    "--max-seq-len",
+    "max_length",
+    type=int,
+    default=None,
+    help="Override model max_seq_len for KV-cache pre-allocation.",
+)
+@click.option(
+    "--bnb4/--no-bnb4",
+    default=False,
+    help="Load the text model with bitsandbytes NF4 4-bit quantization.",
+)
 @click.option("--iterative-prompt/--no-iterative-prompt", default=True)
 @click.option("--chunk-length", type=int, default=300)
 @click.option("--output-dir", type=Path, default="output")
@@ -865,6 +897,8 @@ def main(
     compile: bool,
     seed: int,
     half: bool,
+    max_length: Optional[int],
+    bnb4: bool,
     iterative_prompt: bool,
     chunk_length: int,
     output_dir: Path,
@@ -888,7 +922,12 @@ def main(
     logger.info("Loading model ...")
     t0 = time.time()
     model, decode_one_token = init_model(
-        checkpoint_path, device, precision, compile=compile
+        checkpoint_path,
+        device,
+        precision,
+        compile=compile,
+        max_length=max_length,
+        bnb4=bnb4,
     )
     with torch.device(device):
         model.setup_caches(

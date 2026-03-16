@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 
-import loralib as lora
+try:
+    import loralib as lora
+except ImportError:
+    lora = None
 
 
 @dataclass
@@ -10,7 +13,15 @@ class LoraConfig:
     lora_dropout: float = 0.0
 
 
+def _require_lora():
+    if lora is None:
+        raise ImportError(
+            "loralib is required for LoRA support. Install loralib to use this feature."
+        )
+
+
 def _replace_embedding(old_embed, lora_config):
+    _require_lora()
     new_embed = lora.Embedding(
         num_embeddings=old_embed.num_embeddings,
         embedding_dim=old_embed.embedding_dim,
@@ -23,6 +34,7 @@ def _replace_embedding(old_embed, lora_config):
 
 
 def setup_lora(model, lora_config):
+    _require_lora()
     # Replace the embedding layer with a LoRA layer, preserving pretrained weights
     model.embeddings = _replace_embedding(model.embeddings, lora_config)
     model.codebook_embeddings = _replace_embedding(
