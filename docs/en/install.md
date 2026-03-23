@@ -1,16 +1,61 @@
 ## Requirements
 
-- GPU Memory: 24GB (Inference)
+- GPU Memory: **12 GB recommended** for the default BnB4 API deployment
 - System: Linux, WSL
+- Miniconda or Anaconda
 
-## System Setup
+## Recommended Install: RTX 3060 / 12 GB / BnB4
 
-Fish Audio S2 supports multiple installation methods. Choose the one that best fits your development environment.
+This fork now ships with a **default install-and-run path** for smaller GPUs. If you want the flagship `s2-pro` model with an OpenAI-compatible API, lazy loading, and an automatic idle shutdown, this is the path to use.
 
 **Prerequisites**: Install system dependencies for audio processing:
 ``` bash
 apt install portaudio19-dev libsox-dev ffmpeg
 ```
+
+### One-command setup
+
+```bash
+git clone https://github.com/groxaxo/fish-speech-int4-patch
+cd fish-speech-int4-patch
+
+./install_bnb4_3060.sh
+```
+
+What the installer does:
+
+- creates a dedicated conda env named `fish-speech-bnb4`
+- installs Fish Speech with `bitsandbytes` support
+- downloads the official unquantized `fishaudio/s2-pro` checkpoint into `checkpoints/s2-pro`
+- keeps the deployment local and self-contained
+
+### Start the API server
+
+```bash
+./start_bnb4_3060.sh
+```
+
+By default this launches:
+
+- `http://0.0.0.0:8880/v1`
+- `--bnb4 --half`
+- `--lazy-load`
+- `--idle-timeout-seconds 300`
+- `GPU_INDEX=0`
+
+Useful overrides:
+
+```bash
+GPU_INDEX=3 PORT=8890 ./start_bnb4_3060.sh
+ENV_NAME=fish-speech-bnb4 IDLE_TIMEOUT_SECONDS=900 ./start_bnb4_3060.sh
+```
+
+!!! note
+    `--bnb4` should be paired with the official unquantized `s2-pro` checkpoint. Do not point the launcher at pre-quantized INT4/INT8 checkpoint folders.
+
+## Alternative Installation Methods
+
+Fish Audio S2 still supports the more general installation flows below if you want to customize the environment manually.
 
 ### Conda
 
@@ -75,7 +120,7 @@ We provide Docker images for both WebUI and API server on both GPU (CUDA126 by d
 
 - Docker and Docker Compose installed
 - NVIDIA Docker runtime (for GPU support)
-- At least 24GB GPU memory for CUDA inference
+- At least 12 GB GPU memory for the default BnB4 API path, or more for full-precision and custom deployments
 
 # Use docker compose
 

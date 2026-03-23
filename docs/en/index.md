@@ -4,7 +4,7 @@
 <p><strong>English</strong> | <a href="../zh/">简体中文</a> | <a href="../pt/">Portuguese</a> | <a href="../ja/">日本語</a> | <a href="../ko/">한국어</a> | <a href="../ar/">العربية</a></p>
 
 !!! note "Fork notice"
-    This is a community fork of [fishaudio/fish-speech](https://github.com/fishaudio/fish-speech) with bitsandbytes NF4 4-bit quantization support.  
+    This is a community fork of [fishaudio/fish-speech](https://github.com/fishaudio/fish-speech) with bitsandbytes NF4 4-bit quantization support, lazy server startup, and an API-first deployment path for 12 GB GPUs.
     Huge thanks to the team at [Fish Audio](https://fish.audio/) for the original research and open-source release — all core credit belongs to them.
 
 <a href="https://www.producthunt.com/products/fish-speech?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-fish&#0045;audio&#0045;s1" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1023740&theme=light&period=daily&t=1761164814710" alt="Fish&#0032;Audio&#0032;S1 - Expressive&#0032;Voice&#0032;Cloning&#0032;and&#0032;Text&#0045;to&#0045;Speech | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
@@ -53,14 +53,31 @@
 
 ## Quick Start
 
-### For Human
+### Recommended default path
 
-Here are the official documents for Fish Audio S2, follow the instructions to get started easily.
+This fork is optimized around a polished **RTX 3060 / 12 GB** server workflow:
 
-- [Installation](https://speech.fish.audio/install/)
+```bash
+git clone https://github.com/groxaxo/fish-speech-int4-patch
+cd fish-speech-int4-patch
+
+./install_bnb4_3060.sh
+./start_bnb4_3060.sh
+```
+
+That default launcher gives you:
+
+- BnB NF4 4-bit inference
+- lazy model loading on first request
+- OpenAI-compatible endpoints on `http://0.0.0.0:8880/v1`
+- automatic shutdown after 5 minutes idle
+
+### More docs
+
+- [Installation](install.md)
+- [Server Inference](server.md)
 - [Command Line Inference](https://speech.fish.audio/inference/#command-line-inference)
 - [WebUI Inference](https://speech.fish.audio/inference/#webui-inference)
-- [Server Inference](https://speech.fish.audio/server/)
 - [Docker Setup](https://speech.fish.audio/install/#docker-setup)
 
 > [!IMPORTANT]
@@ -69,7 +86,7 @@ Here are the official documents for Fish Audio S2, follow the instructions to ge
 ### For LLM Agent
 
 ```
-Install and configure Fish-Audio S2 by following the instructions here: https://speech.fish.audio/install/
+Clone the repo, run ./install_bnb4_3060.sh, then run ./start_bnb4_3060.sh for the default 12 GB OpenAI-compatible deployment.
 ```
 
 ## Fish Audio S2  

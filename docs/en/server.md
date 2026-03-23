@@ -2,6 +2,23 @@
 
 This page covers server-side inference for Fish Audio S2, plus quick links for WebUI inference and Docker deployment.
 
+## Recommended default server
+
+For this fork, the recommended path is the **12 GB BnB4 deployment**:
+
+```bash
+./install_bnb4_3060.sh
+./start_bnb4_3060.sh
+```
+
+That default launcher gives you:
+
+- `http://0.0.0.0:8880/v1`
+- `--bnb4 --half`
+- lazy model loading on first inference
+- automatic shutdown after **300 seconds** of inactivity
+- port cleanup before startup if `8880` is already occupied
+
 ## API Server Inference
 
 Fish Speech provides an HTTP API server entrypoint at `tools/api_server.py`.
@@ -12,7 +29,10 @@ Fish Speech provides an HTTP API server entrypoint at `tools/api_server.py`.
 python tools/api_server.py \
   --llama-checkpoint-path checkpoints/s2-pro \
   --decoder-checkpoint-path checkpoints/s2-pro/codec.pth \
-  --listen 0.0.0.0:8080
+  --bnb4 --half \
+  --lazy-load \
+  --idle-timeout-seconds 300 \
+  --listen 0.0.0.0:8880
 ```
 
 Common options:
@@ -20,6 +40,8 @@ Common options:
 - `--compile`: enable `torch.compile` optimization
 - `--half`: use fp16 mode
 - `--bnb4`: enable bitsandbytes NF4 4-bit quantization (requires `pip install bitsandbytes`; reduces VRAM to ~12 GB)
+- `--lazy-load` / `--no-lazy-load`: control whether models load on first request or on server startup
+- `--idle-timeout-seconds`: shut the server down after a period of inactivity (`0` disables the timeout)
 - `--api-key`: require bearer token authentication
 - `--workers`: set worker process count
 - `--max-seq-len`: reduce KV-cache preallocation for smaller GPUs
@@ -27,7 +49,7 @@ Common options:
 ### Health check
 
 ```bash
-curl -X GET http://127.0.0.1:8080/v1/health
+curl -X GET http://127.0.0.1:8880/v1/health
 ```
 
 Expected response:
@@ -79,7 +101,7 @@ For example:
 Example request:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/v1/audio/speech \
+curl -X POST http://127.0.0.1:8880/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -d '{
     "model": "tts-1",

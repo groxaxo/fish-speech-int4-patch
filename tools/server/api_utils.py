@@ -1,5 +1,5 @@
 import io
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
 from http import HTTPStatus
 from typing import Annotated, Any, AsyncIterable
 
@@ -82,6 +82,18 @@ def parse_args():
     parser.add_argument("--half", action="store_true")
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--bnb4", action="store_true")
+    parser.add_argument(
+        "--lazy-load",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Load models on first inference request instead of server startup.",
+    )
+    parser.add_argument(
+        "--idle-timeout-seconds",
+        type=int,
+        default=300,
+        help="Shut the API server down after this many seconds without HTTP traffic. Use 0 to disable.",
+    )
     parser.add_argument("--max-text-length", type=int, default=0)
     parser.add_argument(
         "--max-seq-len",

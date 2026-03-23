@@ -57,9 +57,38 @@ from tools.server.model_utils import (
 routes = Routes()
 
 
+def _mark_request_activity():
+    request.app.state.last_request_time = time.time()
+
+
+def _begin_request_work():
+    app_state = request.app.state
+    _mark_request_activity()
+    with app_state.lock:
+        app_state.active_requests += 1
+
+
+def _end_request_work():
+    app_state = request.app.state
+    _mark_request_activity()
+    with app_state.lock:
+        app_state.active_requests = max(0, app_state.active_requests - 1)
+
+
+async def _tracked_stream(iterable):
+    try:
+        async for chunk in iterable:
+            _mark_request_activity()
+            yield chunk
+    finally:
+        _end_request_work()
+
+
 def _get_tts_context():
     app_state = request.app.state
     model_manager: ModelManager = app_state.model_manager
+    model_manager.ensure_loaded()
+    _mark_request_activity()
     engine = model_manager.tts_inference_engine
     sample_rate = engine.decoder_model.sample_rate
     return app_state, engine, sample_rate
@@ -97,8 +126,10 @@ async def vqgan_encode(req: Annotated[ServeVQGANEncodeRequest, Body(exclusive=Tr
     Encode audio using VQGAN model.
     """
     try:
+        _begin_request_work()
         # Get the model from the app
         model_manager: ModelManager = request.app.state.model_manager
+        model_manager.ensure_loaded()
         decoder_model = model_manager.decoder_model
 
         # Encode the audio
@@ -118,6 +149,8 @@ async def vqgan_encode(req: Annotated[ServeVQGANEncodeRequest, Body(exclusive=Tr
         raise HTTPException(
             HTTPStatus.INTERNAL_SERVER_ERROR, content="Failed to encode audio"
         )
+    finally:
+        _end_request_work()
 
 
 @routes.http.post("/v1/vqgan/decode")
@@ -126,8 +159,10 @@ async def vqgan_decode(req: Annotated[ServeVQGANDecodeRequest, Body(exclusive=Tr
     Decode tokens to audio using VQGAN model.
     """
     try:
+        _begin_request_work()
         # Get the model from the app
         model_manager: ModelManager = request.app.state.model_manager
+        model_manager.ensure_loaded()
         decoder_model = model_manager.decoder_model
 
         # Decode the audio
@@ -149,6 +184,8 @@ async def vqgan_decode(req: Annotated[ServeVQGANDecodeRequest, Body(exclusive=Tr
         raise HTTPException(
             HTTPStatus.INTERNAL_SERVER_ERROR, content="Failed to decode tokens to audio"
         )
+    finally:
+        _end_request_work()
 
 
 @routes.http.post("/v1/tts")
@@ -157,12 +194,13 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
     Generate speech from text using TTS model.
     """
     try:
+        _begin_request_work()
         app_state, engine, sample_rate = _get_tts_context()
         req = prepare_tts_request(req, app_state.max_text_length)
 
         if req.streaming:
             return StreamResponse(
-                iterable=inference_async(req, engine),
+                iterable=_tracked_stream(inference_async(req, engine)),
                 headers=_audio_headers(req.format, chunked=True, language=req.language),
                 content_type=get_content_type(req.format),
             )
@@ -170,15 +208,18 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
         fake_audios = next(inference(req, engine))
         audio_bytes = serialize_audio_output(fake_audios, sample_rate, req.format)
         return StreamResponse(
-            iterable=buffer_to_async_generator(audio_bytes),
+            iterable=_tracked_stream(buffer_to_async_generator(audio_bytes)),
             headers=_audio_headers(req.format, language=req.language),
             content_type=get_content_type(req.format),
         )
     except ValueError as e:
+        _end_request_work()
         raise HTTPException(HTTPStatus.BAD_REQUEST, content=str(e))
     except HTTPException:
+        _end_request_work()
         raise
     except Exception as e:
+        _end_request_work()
         logger.error(f"Error in TTS generation: {e}", exc_info=True)
         raise HTTPException(
             HTTPStatus.INTERNAL_SERVER_ERROR, content="Failed to generate speech"
@@ -214,6 +255,7 @@ async def list_openai_voices():
 @routes.http.post("/v1/audio/speech")
 async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)]):
     try:
+        _begin_request_work()
         if get_openai_model(req.model) is None:
             raise HTTPException(
                 HTTPStatus.BAD_REQUEST,
@@ -232,7 +274,7 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
 
         if req.stream and tts_req.streaming:
             return StreamResponse(
-                iterable=inference_async(tts_req, engine),
+                iterable=_tracked_stream(inference_async(tts_req, engine)),
                 headers=_audio_headers(
                     tts_req.format, chunked=True, language=tts_req.language
                 ),
@@ -244,7 +286,7 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
 
         if req.stream:
             return StreamResponse(
-                iterable=chunk_bytes(audio_bytes),
+                iterable=_tracked_stream(chunk_bytes(audio_bytes)),
                 headers=_audio_headers(
                     tts_req.format, chunked=True, language=tts_req.language
                 ),
@@ -252,11 +294,12 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
             )
 
         return StreamResponse(
-            iterable=buffer_to_async_generator(audio_bytes),
+            iterable=_tracked_stream(buffer_to_async_generator(audio_bytes)),
             headers=_audio_headers(tts_req.format, language=tts_req.language),
             content_type=get_content_type(tts_req.format),
         )
     except ValueError as e:
+        _end_request_work()
         raise HTTPException(
             HTTPStatus.BAD_REQUEST,
             content=build_openai_error(
@@ -264,12 +307,14 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
             ),
         )
     except RuntimeError as e:
+        _end_request_work()
         logger.error(f"Processing error in /v1/audio/speech: {e}", exc_info=True)
         raise HTTPException(
             HTTPStatus.INTERNAL_SERVER_ERROR,
             content=build_openai_error("processing_error", str(e), "server_error"),
         )
     except HTTPException as e:
+        _end_request_work()
         if isinstance(e.content, dict):
             raise
         raise HTTPException(
@@ -281,6 +326,7 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
             ),
         )
     except Exception as e:
+        _end_request_work()
         logger.error(f"Unexpected error in /v1/audio/speech: {e}", exc_info=True)
         raise HTTPException(
             HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -312,6 +358,7 @@ async def add_reference(
         # Get the model manager to access the reference loader
         app_state = request.app.state
         model_manager: ModelManager = app_state.model_manager
+        model_manager.ensure_loaded()
         engine = model_manager.tts_inference_engine
 
         # Read the uploaded audio file
@@ -382,6 +429,7 @@ async def list_references():
         # Get the model manager to access the reference loader
         app_state = request.app.state
         model_manager: ModelManager = app_state.model_manager
+        model_manager.ensure_loaded()
         engine = model_manager.tts_inference_engine
 
         # Get the list of reference IDs
@@ -415,6 +463,7 @@ async def delete_reference(reference_id: str = Body(...)):
         # Get the model manager to access the reference loader
         app_state = request.app.state
         model_manager: ModelManager = app_state.model_manager
+        model_manager.ensure_loaded()
         engine = model_manager.tts_inference_engine
 
         # Delete the reference using the engine's reference loader
@@ -490,6 +539,7 @@ async def update_reference(
         # Access engine to update caches after renaming
         app_state = request.app.state
         model_manager: ModelManager = app_state.model_manager
+        model_manager.ensure_loaded()
         engine = model_manager.tts_inference_engine
 
         refs_base = Path("references")

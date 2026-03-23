@@ -64,7 +64,9 @@ venv.bak/
 # --------------------
 data/
 results/
+checkpoints
 checkpoints/
+references
 references/
 demo-audios/
 example/

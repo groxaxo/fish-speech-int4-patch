@@ -1,5 +1,5 @@
 <div align="center">
-<h1>Fish Speech — BnB INT4 Fork</h1>
+<h1>Fish Speech — 12 GB Ready BnB NF4 Fork</h1>
 
 **English** | [简体中文](docs/README.zh.md) | [Portuguese](docs/README.pt-BR.md) | [日本語](docs/README.ja.md) | [한국어](docs/README.ko.md) | [العربية](docs/README.ar.md) <br>
 
@@ -52,60 +52,59 @@
 > **Legal Disclaimer**  
 > We do not hold any responsibility for any illegal usage of the codebase. Please refer to your local laws about DMCA and other related laws.
 
-## Fork Changes: BnB NF4 4-bit Quantization
+## Default Deployment: S2-Pro on a Single 12 GB GPU
 
-This fork adds `--bnb4` support to the text-to-semantic model, letting you run the full S2-Pro model in **~12 GB of VRAM** instead of 24 GB.
+This fork is tuned to make **Fish Speech S2-Pro feel practical on everyday hardware**. The default path is now a polished **RTX 3060 / 12 GB** deployment with:
 
-### Install bitsandbytes
+- **bitsandbytes NF4 4-bit quantization** via `--bnb4`
+- **lazy model loading** so the API starts fast and loads weights on first inference
+- an **OpenAI-compatible API** on `http://0.0.0.0:8880/v1`
+- an **automatic 5 minute idle shutdown** to give VRAM back when the server is not being used
+- a **one-command installer** and **one-command launcher**
+
+If you want the fastest path from clone to audio, use this:
 
 ```bash
-pip install -e .[bnb]
-# or manually:
-pip install bitsandbytes>=0.43.0
+git clone https://github.com/groxaxo/fish-speech-int4-patch
+cd fish-speech-int4-patch
+
+./install_bnb4_3060.sh
+./start_bnb4_3060.sh
 ```
 
-### Usage
+The launcher defaults to:
 
-**CLI inference:**
-```bash
-python fish_speech/models/text2semantic/inference.py \
-    --text "Hello world" \
-    --bnb4 --half
-```
+- `GPU_INDEX=0`
+- `PORT=8880`
+- `--bnb4 --half`
+- `--lazy-load`
+- `--idle-timeout-seconds 300`
+- `--max-seq-len 4096`
 
-**API server:**
-```bash
-python tools/api_server.py \
-    --llama-checkpoint-path checkpoints/s2-pro \
-    --decoder-checkpoint-path checkpoints/s2-pro/codec.pth \
-    --bnb4 --half \
-    --listen 0.0.0.0:8080
-```
+> [!NOTE]
+> `--bnb4` is designed for the official unquantized `fishaudio/s2-pro` checkpoint. Do **not** point it at pre-quantized `int4` or `int8` checkpoint directories.
 
-> [!NOTE]  
-> `--bnb4` only works with unquantized checkpoints. Do **not** combine it with `int4`/`int8` checkpoint directories.
+### Why this fork exists
 
----
+The upstream S2-Pro model is outstanding, but the default out-of-box setup assumes more GPU headroom than many single-card workstations have. This fork closes that gap and turns S2-Pro into a **professional, API-first voice stack for 12 GB cards** without sacrificing the flagship model experience.
 
 ## Quick Start
 
-### For Human
+### Recommended docs
 
-Here are the official documents for Fish Audio S2, follow the instructions to get started easily.
-
-- [Installation](https://speech.fish.audio/install/)
-- [Command Line Inference](https://speech.fish.audio/inference/#command-line-inference)
-- [WebUI Inference](https://speech.fish.audio/inference/#webui-inference)
-- [Server Inference](https://speech.fish.audio/server/)
-- [Docker Setup](https://speech.fish.audio/install/#docker-setup)
+- [12 GB install guide](docs/en/install.md)
+- [Server guide](docs/en/server.md)
+- [Command line inference](https://speech.fish.audio/inference/#command-line-inference)
+- [WebUI inference](https://speech.fish.audio/inference/#webui-inference)
+- [Docker setup](https://speech.fish.audio/install/#docker-setup)
 
 > [!IMPORTANT]
-> **For SGLang server, please read [SGLang-Omni README](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/models/fishaudio_s2_pro/README.md).**
+> For SGLang server deployment, read the [SGLang-Omni README](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/models/fishaudio_s2_pro/README.md).
 
-### For LLM Agent
+### For LLM agents
 
-```
-Install and configure Fish-Audio S2 by following the instructions here: https://speech.fish.audio/install/
+```text
+Clone the repo, run ./install_bnb4_3060.sh, then run ./start_bnb4_3060.sh. This launches the OpenAI-compatible API on port 8880 with BnB NF4, lazy loading, and a 5 minute idle timeout.
 ```
 
 ## Fish Audio S2  
