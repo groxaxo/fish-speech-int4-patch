@@ -15,6 +15,22 @@
 <br>
 
 <div align="center">
+    <a target="_blank" href="https://github.com/groxaxo/fish-speech-int4-patch/stargazers">
+        <img alt="GitHub stars" src="https://img.shields.io/github/stars/groxaxo/fish-speech-int4-patch?style=for-the-badge&label=Star%20the%20Fork"/>
+    </a>
+    <a target="_blank" href="https://huggingface.co/groxaxo/s2-pro">
+        <img alt="Hugging Face model" src="https://img.shields.io/badge/HuggingFace-groxaxo%2Fs2--pro-f59e0b?style=for-the-badge"/>
+    </a>
+    <a target="_blank" href="https://github.com/fishaudio/fish-speech">
+        <img alt="Upstream project" src="https://img.shields.io/badge/Upstream-fishaudio%2Ffish--speech-1f7a8c?style=for-the-badge"/>
+    </a>
+</div>
+
+<div align="center">
+    <strong>Run flagship S2-Pro on 12 GB cards, grab the NF4 model on Hugging Face, and if this saves you GPU pain, please star the fork.</strong>
+</div>
+
+<div align="center">
     <img src="https://count.getloli.com/get/@fish-speech?theme=asoul" /><br>
 </div>
 
@@ -100,6 +116,12 @@ The direct entrypoints now follow the same defaults too:
 - Loader path: keep `--bnb4 --half` enabled when targeting this checkpoint
 - Export helper: `python tools/llama/export_nf4.py --checkpoint-path checkpoints/s2-pro --output-path /tmp/s2-pro-nf4`
 - Smoke-tested flow: exported NF4 `model.pth` reloads correctly through `init_model(...)`
+
+### Why star this fork
+
+- It turns upstream S2-Pro into a cleaner 12 GB-friendly deployment with sensible `bnb4` defaults
+- It ships the live NF4 publishing path used for [`groxaxo/s2-pro`](https://huggingface.co/groxaxo/s2-pro)
+- It keeps the original Fish Audio model front and center while making self-hosting dramatically easier
 
 ### Why this fork exists
 
