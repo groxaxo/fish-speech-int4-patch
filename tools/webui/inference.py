@@ -25,6 +25,16 @@ def inference_wrapper(
     Used in the Gradio interface.
     """
 
+    if not str(text or "").strip():
+        return None, build_html_error_message(
+            i18n("Please enter some text before generating audio.")
+        )
+
+    if reference_audio and not str(reference_text or "").strip():
+        return None, build_html_error_message(
+            i18n("Reference text is required when reference audio is provided.")
+        )
+
     if reference_audio:
         references = get_reference_audio(reference_audio, reference_text)
     else:
@@ -52,7 +62,7 @@ def inference_wrapper(
             case _:
                 pass
 
-    return None, i18n("No audio generated")
+    return None, build_html_error_message(i18n("No audio generated"))
 
 
 def get_reference_audio(reference_audio: str, reference_text: str) -> list:
@@ -67,13 +77,21 @@ def get_reference_audio(reference_audio: str, reference_text: str) -> list:
 
 
 def build_html_error_message(error: Any) -> str:
-
-    error = error if isinstance(error, Exception) else Exception("Unknown error")
+    if isinstance(error, Exception):
+        message = str(error)
+    elif error:
+        message = str(error)
+    else:
+        message = i18n("Unknown error")
 
     return f"""
-    <div style="color: red; 
-    font-weight: bold;">
-        {html.escape(str(error))}
+    <div style="color: #b91c1c;
+    font-weight: 600;
+    background: rgba(254, 226, 226, 0.85);
+    border: 1px solid rgba(248, 113, 113, 0.45);
+    border-radius: 14px;
+    padding: 14px 16px;">
+        {html.escape(message)}
     </div>
     """
 

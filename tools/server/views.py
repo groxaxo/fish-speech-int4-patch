@@ -13,6 +13,7 @@ from kui.asgi import (
     HTTPException,
     HttpView,
     JSONResponse,
+    Path as ApiPath,
     Routes,
     StreamResponse,
     UploadFile,
@@ -232,7 +233,7 @@ async def list_models():
 
 
 @routes.http.get("/v1/models/{model_id}")
-async def get_model(model_id: str):
+async def get_model(model_id: Annotated[str, ApiPath(...)]):
     model = get_openai_model(model_id)
     if model is None:
         raise HTTPException(

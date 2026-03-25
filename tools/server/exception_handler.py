@@ -8,6 +8,12 @@ class ExceptionHandler:
 
     async def http_exception_handler(self, exc: HTTPException):
         if isinstance(exc.content, dict):
+            if "error" in exc.content:
+                return JSONResponse(
+                    exc.content,
+                    exc.status_code,
+                    exc.headers,
+                )
             return JSONResponse(
                 {"detail": exc.content},
                 exc.status_code,

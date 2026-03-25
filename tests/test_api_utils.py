@@ -6,8 +6,10 @@ import numpy as np
 from fish_speech.text import TextNormalizationOptions
 from fish_speech.utils.schema import OpenAISpeechRequest, ServeReferenceAudio, ServeTTSRequest
 from tools.server.api_utils import (
+    build_openai_error,
     build_openai_model_list,
     build_openai_tts_request,
+    parse_args,
     prepare_tts_request,
     resolve_openai_reference_id,
     serialize_audio_output,
@@ -89,6 +91,25 @@ class ApiUtilsTests(unittest.TestCase):
         self.assertIn("tts-1", model_ids)
         self.assertIn("tts-1-hd", model_ids)
         self.assertIn("fish-speech", model_ids)
+        self.assertIn("s2-pro", model_ids)
+
+    def test_build_openai_error_matches_openai_error_shape(self):
+        payload = build_openai_error("invalid_model", "Unsupported model")
+        self.assertEqual(payload["error"]["code"], "invalid_model")
+        self.assertEqual(payload["error"]["message"], "Unsupported model")
+        self.assertEqual(payload["error"]["type"], "invalid_request_error")
+        self.assertIsNone(payload["error"]["param"])
+
+    def test_openai_speech_request_accepts_flac_output(self):
+        req = OpenAISpeechRequest(input="Hello world", response_format="flac")
+        tts_req = build_openai_tts_request(req, reference_id=None)
+        self.assertEqual(tts_req.format, "flac")
+
+    def test_api_server_defaults_to_bnb4_fp16_and_port_8880(self):
+        args = parse_args([])
+        self.assertTrue(args.bnb4)
+        self.assertTrue(args.half)
+        self.assertEqual(args.listen, "0.0.0.0:8880")
 
 
 if __name__ == "__main__":

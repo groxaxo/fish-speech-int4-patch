@@ -15,6 +15,7 @@ That default launcher gives you:
 
 - `http://0.0.0.0:8880/v1`
 - `--bnb4 --half`
+- the same BnB4/FP16 defaults on the direct `tools/api_server.py` and `tools/run_webui.py` entrypoints
 - lazy model loading on first inference
 - automatic shutdown after **300 seconds** of inactivity
 - port cleanup before startup if `8880` is already occupied
@@ -29,11 +30,12 @@ Fish Speech provides an HTTP API server entrypoint at `tools/api_server.py`.
 python tools/api_server.py \
   --llama-checkpoint-path checkpoints/s2-pro \
   --decoder-checkpoint-path checkpoints/s2-pro/codec.pth \
-  --bnb4 --half \
   --lazy-load \
   --idle-timeout-seconds 300 \
   --listen 0.0.0.0:8880
 ```
+
+`--bnb4` and `--half` are now the default for this fork, so you only need to pass them explicitly when you want to be extra clear. Use `--no-bnb4` or `--no-half` to opt out.
 
 Common options:
 
@@ -104,7 +106,7 @@ Example request:
 curl -X POST http://127.0.0.1:8880/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "tts-1",
+    "model": "s2-pro",
     "input": "Hello from Fish Speech.",
     "voice": "alloy",
     "language": "auto",
@@ -117,6 +119,8 @@ curl -X POST http://127.0.0.1:8880/v1/audio/speech \
 
 - one of the standard OpenAI-compatible aliases such as `alloy` or `nova` (mapped to Fish Speech default synthesis), or
 - an existing Fish Speech `reference_id`, which enables reference-conditioned synthesis through the OpenAI-style endpoint.
+
+Supported model IDs include the canonical `s2-pro` plus `tts-1`, `tts-1-hd`, and `fish-speech`.
 
 If you send Spanish text such as `Hola señor, ¿cómo estás?` with `"language": "en"`, the server will still resolve the request to `es`.
 
@@ -137,3 +141,5 @@ You can also start the server profile directly with Docker Compose:
 ```bash
 docker compose --profile server up
 ```
+
+By default, the compose server profile now publishes the API on port `8880`.

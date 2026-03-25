@@ -14,6 +14,7 @@ is_complete_checkpoint_dir() {
     [[ -f "${dir}/codec.pth" ]] || return 1
     [[ -f "${dir}/config.json" ]] || return 1
     [[ -f "${dir}/tokenizer.json" ]] || return 1
+    [[ -f "${dir}/model.pth" ]] && return 0
     [[ -f "${dir}/model.safetensors.index.json" ]] && return 0
     compgen -G "${dir}/model-*.safetensors" >/dev/null
 }

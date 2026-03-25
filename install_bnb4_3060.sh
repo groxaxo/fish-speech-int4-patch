@@ -5,13 +5,14 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_NAME="${ENV_NAME:-fish-speech-bnb4}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
 CUDA_WHL_INDEX="${CUDA_WHL_INDEX:-https://download.pytorch.org/whl/cu128}"
-HF_REPO="${HF_REPO:-fishaudio/s2-pro}"
+HF_REPO="${HF_REPO:-groxaxo/s2-pro}"
 
 is_complete_checkpoint_dir() {
     local dir="$1"
     [[ -f "${dir}/codec.pth" ]] || return 1
     [[ -f "${dir}/config.json" ]] || return 1
     [[ -f "${dir}/tokenizer.json" ]] || return 1
+    [[ -f "${dir}/model.pth" ]] && return 0
     [[ -f "${dir}/model.safetensors.index.json" ]] && return 0
     compgen -G "${dir}/model-*.safetensors" >/dev/null
 }

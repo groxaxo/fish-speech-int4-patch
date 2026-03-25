@@ -59,6 +59,7 @@ This fork is tuned to make **Fish Speech S2-Pro feel practical on everyday hardw
 - **bitsandbytes NF4 4-bit quantization** via `--bnb4`
 - **lazy model loading** so the API starts fast and loads weights on first inference
 - an **OpenAI-compatible API** on `http://0.0.0.0:8880/v1`
+- a refreshed **Gradio frontend** tuned for reference-audio workflows
 - an **automatic 5 minute idle shutdown** to give VRAM back when the server is not being used
 - a **one-command installer** and **one-command launcher**
 
@@ -81,8 +82,14 @@ The launcher defaults to:
 - `--idle-timeout-seconds 300`
 - `--max-seq-len 4096`
 
+The direct entrypoints now follow the same defaults too:
+
+- `python tools/api_server.py` starts on `0.0.0.0:8880` with `--bnb4 --half`
+- `python tools/run_webui.py` loads the WebUI with `--bnb4 --half`
+- pass `--no-bnb4` or `--no-half` if you need to opt out
+
 > [!NOTE]
-> `--bnb4` is designed for the official unquantized `fishaudio/s2-pro` checkpoint. Do **not** point it at pre-quantized `int4` or `int8` checkpoint directories.
+> `--bnb4` is designed for the Groxaxo-hosted `s2-pro` NF4 checkpoint. Do **not** point it at legacy `int4` or `int8` checkpoint directories.
 
 ### Why this fork exists
 
@@ -104,7 +111,7 @@ The upstream S2-Pro model is outstanding, but the default out-of-box setup assum
 ### For LLM agents
 
 ```text
-Clone the repo, run ./install_bnb4_3060.sh, then run ./start_bnb4_3060.sh. This launches the OpenAI-compatible API on port 8880 with BnB NF4, lazy loading, and a 5 minute idle timeout.
+Clone the repo, run ./install_bnb4_3060.sh, then run ./start_bnb4_3060.sh. This launches the OpenAI-compatible API on port 8880 with BnB NF4, lazy loading, and a 5 minute idle timeout. The canonical model name is `s2-pro`; compatible OpenAI-style model IDs include `tts-1` and `tts-1-hd`.
 ```
 
 ## Fish Audio S2  
@@ -120,7 +127,7 @@ Visit the [Fish Audio website](https://fish.audio/) for live playground. Read th
 
 | Model | Size | Availability | Description |
 |------|------|-------------|-------------|
-| S2-Pro | 4B parameters | [HuggingFace](https://huggingface.co/fishaudio/s2-pro) | Full-featured flagship model with maximum quality and stability |
+| S2-Pro | 4B parameters | [HuggingFace](https://huggingface.co/groxaxo/s2-pro) | Groxaxo-hosted NF4 build of the flagship model |
 
 More details of the model can be found in the [technical report](https://arxiv.org/abs/2411.01156).
 

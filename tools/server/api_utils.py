@@ -26,25 +26,25 @@ OPENAI_MODEL_METADATA = (
         "id": "tts-1",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "fish-audio",
+        "owned_by": "groxaxo",
     },
     {
         "id": "tts-1-hd",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "fish-audio",
+        "owned_by": "groxaxo",
     },
     {
         "id": "fish-speech",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "fish-audio",
+        "owned_by": "groxaxo",
     },
     {
         "id": "s2-pro",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "fish-audio",
+        "owned_by": "groxaxo",
     },
 )
 
@@ -64,7 +64,7 @@ OPENAI_VOICE_ALIASES = {
 }
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = ArgumentParser()
     parser.add_argument("--mode", type=str, choices=["tts"], default="tts")
     parser.add_argument(
@@ -79,9 +79,19 @@ def parse_args():
     )
     parser.add_argument("--decoder-config-name", type=str, default="modded_dac_vq")
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--half", action="store_true")
+    parser.add_argument(
+        "--half",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Use fp16 precision by default. Pass --no-half to prefer bf16.",
+    )
     parser.add_argument("--compile", action="store_true")
-    parser.add_argument("--bnb4", action="store_true")
+    parser.add_argument(
+        "--bnb4",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Enable bitsandbytes NF4 4-bit loading by default.",
+    )
     parser.add_argument(
         "--lazy-load",
         action=BooleanOptionalAction,
@@ -101,11 +111,11 @@ def parse_args():
         default=4096,
         help="Override model max_seq_len for KV-cache pre-allocation (saves VRAM on small GPUs)",
     )
-    parser.add_argument("--listen", type=str, default="127.0.0.1:8080")
+    parser.add_argument("--listen", type=str, default="0.0.0.0:8880")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--api-key", type=str, default=None)
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 class MsgPackRequest(HttpRequest):
@@ -173,9 +183,19 @@ async def chunk_bytes(data: bytes, chunk_size: int = 65536) -> AsyncIterable[byt
 
 
 def build_openai_error(
-    error: str, message: str, error_type: str = "invalid_request_error"
-) -> dict[str, str]:
-    return {"error": error, "message": message, "type": error_type}
+    error: str,
+    message: str,
+    error_type: str = "invalid_request_error",
+    param: str | None = None,
+) -> dict[str, dict[str, str | None]]:
+    return {
+        "error": {
+            "message": message,
+            "type": error_type,
+            "param": param,
+            "code": error,
+        }
+    }
 
 
 def build_openai_model_list() -> dict[str, object]:

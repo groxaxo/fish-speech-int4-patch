@@ -56,7 +56,7 @@
 #   docker run \
 #       --gpus all \
 #       -v ./checkpoints:/app/checkpoints \
-#       -p 8080:8080 \
+#       -p 8880:8880 \
 #       -it fish-speech-server:cuda
 
 
@@ -258,9 +258,36 @@ RUN printf '%s\n' \
     'build_compile_args() {' \
     '    if [ "${1:-}" = "compile" ] || [ "${COMPILE:-}" = "1" ] || [ "${COMPILE:-}" = "true" ]; then' \
     '        echo "--compile"' \
-    '        shift' \
+        '        shift' \
     '    fi' \
     '    echo "$@"' \
+    '}' \
+    '' \
+    '# Build half precision arguments' \
+    'build_half_args() {' \
+    '    if [ "${ENABLE_HALF:-1}" = "0" ] || [ "${ENABLE_HALF:-}" = "false" ]; then' \
+    '        echo "--no-half"' \
+    '    else' \
+    '        echo "--half"' \
+    '    fi' \
+    '}' \
+    '' \
+    '# Build BnB4 arguments' \
+    'build_bnb4_args() {' \
+    '    if [ "${ENABLE_BNB4:-1}" = "0" ] || [ "${ENABLE_BNB4:-}" = "false" ]; then' \
+    '        echo "--no-bnb4"' \
+    '    else' \
+    '        echo "--bnb4"' \
+    '    fi' \
+    '}' \
+    '' \
+    '# Build lazy-load arguments' \
+    'build_lazy_args() {' \
+    '    if [ "${ENABLE_LAZY_LOAD:-1}" = "0" ] || [ "${ENABLE_LAZY_LOAD:-}" = "false" ]; then' \
+    '        echo "--no-lazy-load"' \
+    '    else' \
+    '        echo "--lazy-load"' \
+    '    fi' \
     '}' \
     '' \
     '# Health check function' \
@@ -295,6 +322,9 @@ ENV GRADIO_SERVER_PORT=${GRADIO_SERVER_PORT}
 ENV LLAMA_CHECKPOINT_PATH=${LLAMA_CHECKPOINT_PATH}
 ENV DECODER_CHECKPOINT_PATH=${DECODER_CHECKPOINT_PATH}
 ENV DECODER_CONFIG_NAME=${DECODER_CONFIG_NAME}
+ENV ENABLE_BNB4=1
+ENV ENABLE_HALF=1
+ENV MAX_SEQ_LEN=4096
 
 # Create webui entrypoint
 RUN printf '%s\n' \
@@ -306,16 +336,21 @@ RUN printf '%s\n' \
     '' \
     'DEVICE_ARGS=$(build_device_args)' \
     'COMPILE_ARGS=$(build_compile_args "$@")' \
+    'HALF_ARGS=$(build_half_args)' \
+    'BNB4_ARGS=$(build_bnb4_args)' \
     '' \
     'log "Device args: ${DEVICE_ARGS:-none}"' \
     'log "Compile args: ${COMPILE_ARGS}"' \
+    'log "Half args: ${HALF_ARGS}"' \
+    'log "BnB4 args: ${BNB4_ARGS}"' \
     'log "Server: ${GRADIO_SERVER_NAME}:${GRADIO_SERVER_PORT}"' \
     '' \
     'exec uv run tools/run_webui.py \' \
     '  --llama-checkpoint-path "${LLAMA_CHECKPOINT_PATH}" \' \
     '  --decoder-checkpoint-path "${DECODER_CHECKPOINT_PATH}" \' \
     '  --decoder-config-name "${DECODER_CONFIG_NAME}" \' \
-    '  ${DEVICE_ARGS} ${COMPILE_ARGS}' \
+    '  --max-seq-len "${MAX_SEQ_LEN:-4096}" \' \
+    '  ${DEVICE_ARGS} ${COMPILE_ARGS} ${HALF_ARGS} ${BNB4_ARGS}' \
     > /app/start_webui.sh && chmod +x /app/start_webui.sh
 
 # Health check
@@ -329,7 +364,7 @@ FROM app-base AS server
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
 ARG API_SERVER_NAME="0.0.0.0"
-ARG API_SERVER_PORT=8080
+ARG API_SERVER_PORT=8880
 ARG LLAMA_CHECKPOINT_PATH="checkpoints/s2-pro"
 ARG DECODER_CHECKPOINT_PATH="checkpoints/s2-pro/codec.pth"
 ARG DECODER_CONFIG_NAME="modded_dac_vq"
@@ -343,6 +378,11 @@ ENV API_SERVER_PORT=${API_SERVER_PORT}
 ENV LLAMA_CHECKPOINT_PATH=${LLAMA_CHECKPOINT_PATH}
 ENV DECODER_CHECKPOINT_PATH=${DECODER_CHECKPOINT_PATH}
 ENV DECODER_CONFIG_NAME=${DECODER_CONFIG_NAME}
+ENV ENABLE_BNB4=1
+ENV ENABLE_HALF=1
+ENV ENABLE_LAZY_LOAD=1
+ENV IDLE_TIMEOUT_SECONDS=300
+ENV MAX_SEQ_LEN=4096
 
 # Create server entrypoint
 RUN printf '%s\n' \
@@ -354,9 +394,15 @@ RUN printf '%s\n' \
     '' \
     'DEVICE_ARGS=$(build_device_args)' \
     'COMPILE_ARGS=$(build_compile_args "$@")' \
+    'HALF_ARGS=$(build_half_args)' \
+    'BNB4_ARGS=$(build_bnb4_args)' \
+    'LAZY_ARGS=$(build_lazy_args)' \
     '' \
     'log "Device args: ${DEVICE_ARGS:-none}"' \
     'log "Compile args: ${COMPILE_ARGS}"' \
+    'log "Half args: ${HALF_ARGS}"' \
+    'log "BnB4 args: ${BNB4_ARGS}"' \
+    'log "Lazy args: ${LAZY_ARGS}"' \
     'log "Server: ${API_SERVER_NAME}:${API_SERVER_PORT}"' \
     '' \
     'exec uv run tools/api_server.py \' \
@@ -364,7 +410,9 @@ RUN printf '%s\n' \
     '  --llama-checkpoint-path "${LLAMA_CHECKPOINT_PATH}" \' \
     '  --decoder-checkpoint-path "${DECODER_CHECKPOINT_PATH}" \' \
     '  --decoder-config-name "${DECODER_CONFIG_NAME}" \' \
-    '  ${DEVICE_ARGS} ${COMPILE_ARGS}' \
+    '  --idle-timeout-seconds "${IDLE_TIMEOUT_SECONDS:-300}" \' \
+    '  --max-seq-len "${MAX_SEQ_LEN:-4096}" \' \
+    '  ${DEVICE_ARGS} ${COMPILE_ARGS} ${HALF_ARGS} ${BNB4_ARGS} ${LAZY_ARGS}' \
     > /app/start_server.sh && chmod +x /app/start_server.sh
 
 # Health check

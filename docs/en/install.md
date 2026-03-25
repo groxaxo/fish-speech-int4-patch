@@ -26,7 +26,7 @@ What the installer does:
 
 - creates a dedicated conda env named `fish-speech-bnb4`
 - installs Fish Speech with `bitsandbytes` support
-- downloads the official unquantized `fishaudio/s2-pro` checkpoint into `checkpoints/s2-pro`
+- downloads the Groxaxo-hosted `s2-pro` NF4 checkpoint into `checkpoints/s2-pro`
 - keeps the deployment local and self-contained
 
 ### Start the API server

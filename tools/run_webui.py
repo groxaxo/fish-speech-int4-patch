@@ -1,5 +1,5 @@
 import os
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
 from pathlib import Path
 
 import pyrootutils
@@ -19,7 +19,7 @@ from tools.webui.inference import get_inference_wrapper
 os.environ["EINX_FILTER_TRACEBACK"] = "false"
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = ArgumentParser()
     parser.add_argument(
         "--llama-checkpoint-path",
@@ -33,9 +33,19 @@ def parse_args():
     )
     parser.add_argument("--decoder-config-name", type=str, default="modded_dac_vq")
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--half", action="store_true")
+    parser.add_argument(
+        "--half",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Use fp16 precision by default. Pass --no-half to prefer bf16.",
+    )
     parser.add_argument("--compile", action="store_true")
-    parser.add_argument("--bnb4", action="store_true")
+    parser.add_argument(
+        "--bnb4",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Enable bitsandbytes NF4 4-bit loading by default.",
+    )
     parser.add_argument(
         "--max-seq-len",
         type=int,
@@ -43,9 +53,9 @@ def parse_args():
         help="Override model max_seq_len for KV-cache pre-allocation.",
     )
     parser.add_argument("--max-gradio-length", type=int, default=0)
-    parser.add_argument("--theme", type=str, default="light")
+    parser.add_argument("--theme", type=str, default="system")
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
@@ -113,4 +123,9 @@ if __name__ == "__main__":
     inference_fct = get_inference_wrapper(inference_engine)
 
     app = build_app(inference_fct, args.theme)
-    app.launch()
+    app.launch(
+        server_name=os.environ.get("GRADIO_SERVER_NAME", "0.0.0.0"),
+        server_port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
+        theme=getattr(app, "_fs_theme", None),
+        css=getattr(app, "_fs_css", None),
+    )

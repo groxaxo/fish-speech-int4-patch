@@ -23,4 +23,4 @@ services:
       COMPILE: ${COMPILE:-0}
     profiles: ["server"]
     ports:
-      - "${API_PORT:-8080}:8080"
+      - "${API_PORT:-8880}:8880"
