@@ -33,8 +33,11 @@
 </div>
 
 <div align="center">
-    <a target="_blank" href="https://huggingface.co/fishaudio/s2">
-        <img alt="HuggingFace Model" src="https://img.shields.io/badge/🤗%20-models-orange"/>
+    <a target="_blank" href="https://huggingface.co/groxaxo/s2-pro">
+        <img alt="HuggingFace Model" src="https://img.shields.io/badge/🤗%20NF4%20Model-groxaxo%2Fs2--pro-orange"/>
+    </a>
+    <a target="_blank" href="https://github.com/groxaxo/fish-speech-int4-patch/releases">
+        <img alt="GitHub Releases" src="https://img.shields.io/badge/Releases-GitHub-1f7a8c?style=flat-square&logo=github&logoColor=white"/>
     </a>
     <a target="_blank" href="https://fish.audio/blog/fish-audio-open-sources-s2/">
         <img alt="Fish Audio Blog" src="https://img.shields.io/badge/Blog-Fish_Audio_S2-1f7a8c?style=flat-square&logo=readme&logoColor=white"/>
@@ -90,6 +93,13 @@ The direct entrypoints now follow the same defaults too:
 
 > [!NOTE]
 > `--bnb4` is designed for the Groxaxo-hosted `s2-pro` NF4 checkpoint. Do **not** point it at legacy `int4` or `int8` checkpoint directories.
+
+### Published model
+
+- Hugging Face model: [`groxaxo/s2-pro`](https://huggingface.co/groxaxo/s2-pro)
+- Loader path: keep `--bnb4 --half` enabled when targeting this checkpoint
+- Export helper: `python tools/llama/export_nf4.py --checkpoint-path checkpoints/s2-pro --output-path /tmp/s2-pro-nf4`
+- Smoke-tested flow: exported NF4 `model.pth` reloads correctly through `init_model(...)`
 
 ### Why this fork exists
 
