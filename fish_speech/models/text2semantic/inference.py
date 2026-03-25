@@ -376,8 +376,42 @@ def init_model(
     )
 
     if bnb4:
-        model = model.to(dtype=precision)
-        model = model.to(device=device)
+        if getattr(model, "_bnb4_prequantized", False):
+            try:
+                import bitsandbytes as bnb
+            except ImportError as exc:
+                raise ImportError(
+                    "bitsandbytes is required for bnb4 loading. Install bitsandbytes to use this mode."
+                ) from exc
+
+            model = model.to(device=device)
+
+            def _cast_nonquantized_tensors(module):
+                if isinstance(module, bnb.nn.Linear4bit):
+                    if module.bias is not None:
+                        module.bias.data = module.bias.data.to(
+                            device=device,
+                            dtype=precision,
+                        )
+                    return
+
+                for name, param in module.named_parameters(recurse=False):
+                    if param is None or not param.is_floating_point():
+                        continue
+                    param.data = param.data.to(device=device, dtype=precision)
+
+                for name, buffer in module.named_buffers(recurse=False):
+                    if buffer is None or not torch.is_floating_point(buffer):
+                        continue
+                    module._buffers[name] = buffer.to(device=device, dtype=precision)
+
+                for child in module.children():
+                    _cast_nonquantized_tensors(child)
+
+            _cast_nonquantized_tensors(model)
+        else:
+            model = model.to(dtype=precision)
+            model = model.to(device=device)
     else:
         model = model.to(device=device, dtype=precision)
     model._bandwidth_model_size = sum(
@@ -568,9 +602,9 @@ def generate_long(
         prompt_tokens = [prompt_tokens]
 
     if use_prompt:
-        assert len(prompt_text) == len(
-            prompt_tokens
-        ), "Prompt text and tokens must have the same length"
+        assert len(prompt_text) == len(prompt_tokens), (
+            "Prompt text and tokens must have the same length"
+        )
 
     if prompt_tokens:
         prompt_tokens = [i.cpu() for i in prompt_tokens]
