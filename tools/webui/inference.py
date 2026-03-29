@@ -42,7 +42,7 @@ def inference_wrapper(
 
     req = ServeTTSRequest(
         text=text,
-        reference_id=reference_id if reference_id else None,
+        reference_id=None if reference_audio else (reference_id if reference_id else None),
         references=references,
         max_new_tokens=max_new_tokens,
         chunk_length=chunk_length,

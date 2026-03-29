@@ -10,6 +10,7 @@ from pydantic.functional_validators import SkipValidation
 from typing_extensions import Annotated
 
 from fish_speech.content_sequence import TextPart, VQPart
+from fish_speech.utils.reference import DEFAULT_REFERENCE_ID
 from fish_speech.text import TextNormalizationOptions
 
 
@@ -108,6 +109,14 @@ class ServeTTSRequest(BaseModel):
     class Config:
         # Allow arbitrary types for pytorch related types
         arbitrary_types_allowed = True
+
+    @model_validator(mode="after")
+    def apply_default_reference(self):
+        if self.reference_id is not None and not self.reference_id.strip():
+            self.reference_id = None
+        if self.reference_id is None and not self.references:
+            self.reference_id = DEFAULT_REFERENCE_ID
+        return self
 
 
 class AddReferenceRequest(BaseModel):

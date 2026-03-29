@@ -3,6 +3,7 @@ from typing import Callable
 import gradio as gr
 
 from fish_speech.i18n import i18n
+from fish_speech.utils.reference import DEFAULT_REFERENCE_ID
 from tools.webui.variables import (
     API_COMPAT_MD,
     APP_CSS,
@@ -106,6 +107,7 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
                     reference_id = gr.Textbox(
                         label=i18n("Reference ID"),
                         placeholder="Leave empty to use uploaded references",
+                        value=DEFAULT_REFERENCE_ID,
                     )
                     use_memory_cache = gr.Radio(
                         label=i18n("Use Memory Cache"),
