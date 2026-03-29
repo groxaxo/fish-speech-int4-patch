@@ -112,8 +112,7 @@ class ServeTTSRequest(BaseModel):
 
     @model_validator(mode="after")
     def apply_default_reference(self):
-        if self.reference_id is not None and not self.reference_id.strip():
-            self.reference_id = None
+        self.reference_id = (self.reference_id or "").strip() or None
         if self.reference_id is None and not self.references:
             self.reference_id = DEFAULT_REFERENCE_ID
         return self

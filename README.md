@@ -83,6 +83,8 @@ This fork is tuned to make **Fish Speech S2-Pro feel practical on everyday hardw
 - an **automatic 5 minute idle shutdown** to give VRAM back when the server is not being used
 - a **one-command installer** and **one-command launcher**
 
+The bundled default sample uses the repo's included Spanish reference clip and transcript. If you want a different default voice, replace `sample.mp3` and `sample.lab` with your preferred reference pair.
+
 If you want the fastest path from clone to audio, use this:
 
 ```bash

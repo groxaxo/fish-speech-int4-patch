@@ -56,11 +56,7 @@ class ReferenceLoader:
                 ref_folder, AUDIO_EXTENSIONS, recursive=True, sort=False
             )
             ref_texts = [ref_audio.with_suffix(".lab") for ref_audio in ref_audios]
-        if not ref_audios and (
-            id == DEFAULT_REFERENCE_ID
-            and DEFAULT_REFERENCE_AUDIO_PATH.exists()
-            and DEFAULT_REFERENCE_TEXT_PATH.exists()
-        ):
+        if self._should_use_bundled_default(id, ref_audios):
             ref_audios = [DEFAULT_REFERENCE_AUDIO_PATH]
             ref_texts = [DEFAULT_REFERENCE_TEXT_PATH]
         elif not ref_folder.exists():
@@ -182,6 +178,16 @@ class ReferenceLoader:
             valid_ids.append(DEFAULT_REFERENCE_ID)
 
         return sorted(valid_ids)
+
+    def _should_use_bundled_default(
+        self, reference_id: str, ref_audios: list[Path]
+    ) -> bool:
+        return (
+            not ref_audios
+            and reference_id == DEFAULT_REFERENCE_ID
+            and DEFAULT_REFERENCE_AUDIO_PATH.exists()
+            and DEFAULT_REFERENCE_TEXT_PATH.exists()
+        )
 
     def add_reference(self, id: str, wav_file_path: str, reference_text: str) -> None:
         """
