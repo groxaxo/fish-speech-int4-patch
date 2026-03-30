@@ -18,6 +18,7 @@ from fish_speech.utils.reference import (
     DEFAULT_REFERENCE_AUDIO_PATH,
     DEFAULT_REFERENCE_ID,
     DEFAULT_REFERENCE_TEXT_PATH,
+    has_bundled_default_reference,
 )
 from fish_speech.utils.schema import ServeReferenceAudio
 
@@ -185,8 +186,7 @@ class ReferenceLoader:
         return (
             not ref_audios
             and reference_id == DEFAULT_REFERENCE_ID
-            and DEFAULT_REFERENCE_AUDIO_PATH.exists()
-            and DEFAULT_REFERENCE_TEXT_PATH.exists()
+            and has_bundled_default_reference()
         )
 
     def add_reference(self, id: str, wav_file_path: str, reference_text: str) -> None:
