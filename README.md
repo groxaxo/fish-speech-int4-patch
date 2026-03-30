@@ -79,8 +79,11 @@ This fork is tuned to make **Fish Speech S2-Pro feel practical on everyday hardw
 - **lazy model loading** so the API starts fast and loads weights on first inference
 - an **OpenAI-compatible API** on `http://0.0.0.0:8880/v1`
 - a refreshed **Gradio frontend** tuned for reference-audio workflows
+- a bundled **default voice sample** so generations stay on a consistent voice even when no reference is supplied
 - an **automatic 5 minute idle shutdown** to give VRAM back when the server is not being used
 - a **one-command installer** and **one-command launcher**
+
+The bundled default sample uses the repo's included Spanish reference clip and transcript. If you want a different default voice, replace `sample.mp3` and `sample.lab` with your preferred reference pair.
 
 If you want the fastest path from clone to audio, use this:
 

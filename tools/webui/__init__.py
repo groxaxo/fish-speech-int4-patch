@@ -3,6 +3,10 @@ from typing import Callable
 import gradio as gr
 
 from fish_speech.i18n import i18n
+from fish_speech.utils.reference import (
+    DEFAULT_REFERENCE_ID,
+    has_bundled_default_reference,
+)
 from tools.webui.variables import (
     API_COMPAT_MD,
     APP_CSS,
@@ -29,6 +33,28 @@ def _build_theme():
 
 def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
     theme_object = _build_theme()
+    default_reference_value = (
+        DEFAULT_REFERENCE_ID if has_bundled_default_reference() else ""
+    )
+    default_reference_placeholder = (
+        i18n(
+            "Leave empty to use the bundled default voice; uploaded reference audio overrides this ID."
+        )
+        if default_reference_value
+        else i18n(
+            "Provide a saved reference ID, or upload reference audio with matching transcript text."
+        )
+    )
+    default_reference_info = (
+        i18n(
+            f"Blank values are normalized to the default reference ID ({DEFAULT_REFERENCE_ID}). If you upload "
+            "reference audio, it will be used even if a reference ID is provided."
+        )
+        if default_reference_value
+        else i18n(
+            "The bundled default voice is unavailable in this deployment. Provide a reference ID or upload reference audio."
+        )
+    )
 
     with gr.Blocks(title="Fish Speech S2-Pro") as app:
         gr.HTML(HEADER_MD)
@@ -105,7 +131,9 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
                     )
                     reference_id = gr.Textbox(
                         label=i18n("Reference ID"),
-                        placeholder="Leave empty to use uploaded references",
+                        placeholder=default_reference_placeholder,
+                        info=default_reference_info,
+                        value=default_reference_value,
                     )
                     use_memory_cache = gr.Radio(
                         label=i18n("Use Memory Cache"),

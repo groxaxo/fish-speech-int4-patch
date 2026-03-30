@@ -1,9 +1,15 @@
 import unittest
 import asyncio
+from unittest.mock import patch
 
 import numpy as np
 
 from fish_speech.text import TextNormalizationOptions
+from fish_speech.utils.reference import (
+    DEFAULT_REFERENCE_ID,
+    DEFAULT_REFERENCE_AUDIO_NAME,
+    DEFAULT_REFERENCE_TEXT_NAME,
+)
 from fish_speech.utils.schema import OpenAISpeechRequest, ServeReferenceAudio, ServeTTSRequest
 from tools.server.api_utils import (
     build_openai_error,
@@ -79,6 +85,36 @@ class ApiUtilsTests(unittest.TestCase):
         self.assertEqual(resolve_openai_reference_id("demo", ["demo"]), "demo")
         with self.assertRaisesRegex(ValueError, "Voice 'missing' not found"):
             resolve_openai_reference_id("missing", ["demo"])
+
+    def test_tts_request_defaults_to_bundled_reference_id(self):
+        req = ServeTTSRequest(text="Hola", format="wav")
+        self.assertEqual(req.reference_id, DEFAULT_REFERENCE_ID)
+
+    def test_tts_request_keeps_explicit_reference_inputs(self):
+        req_with_id = ServeTTSRequest(text="Hola", format="wav", reference_id="demo")
+        self.assertEqual(req_with_id.reference_id, "demo")
+
+        req_with_audio = ServeTTSRequest(
+            text="Hola",
+            format="wav",
+            references=[ServeReferenceAudio(audio=b"audio", text="hola")],
+        )
+        self.assertIsNone(req_with_audio.reference_id)
+
+    def test_tts_request_treats_blank_reference_id_as_default(self):
+        req = ServeTTSRequest(text="Hola", format="wav", reference_id="   ")
+        self.assertEqual(req.reference_id, DEFAULT_REFERENCE_ID)
+
+    def test_tts_request_requires_reference_when_bundled_default_missing(self):
+        with patch(
+            "fish_speech.utils.schema.has_bundled_default_reference",
+            return_value=False,
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                rf"{DEFAULT_REFERENCE_AUDIO_NAME} and {DEFAULT_REFERENCE_TEXT_NAME}",
+            ):
+                ServeTTSRequest(text="Hola", format="wav")
 
     def test_pcm_serialization_returns_int16_bytes(self):
         audio = np.array([0.0, 0.5, -0.5], dtype=np.float32)

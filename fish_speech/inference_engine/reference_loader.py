@@ -14,6 +14,12 @@ from fish_speech.utils.file import (
     list_files,
     read_ref_text,
 )
+from fish_speech.utils.reference import (
+    DEFAULT_REFERENCE_AUDIO_PATH,
+    DEFAULT_REFERENCE_ID,
+    DEFAULT_REFERENCE_TEXT_PATH,
+    has_bundled_default_reference,
+)
 from fish_speech.utils.schema import ServeReferenceAudio
 
 
@@ -44,10 +50,18 @@ class ReferenceLoader:
     ) -> Tuple:
         # Load the references audio and text by id
         ref_folder = Path("references") / id
-        ref_folder.mkdir(parents=True, exist_ok=True)
-        ref_audios = list_files(
-            ref_folder, AUDIO_EXTENSIONS, recursive=True, sort=False
-        )
+        ref_audios = []
+        ref_texts = []
+        if ref_folder.exists():
+            ref_audios = list_files(
+                ref_folder, AUDIO_EXTENSIONS, recursive=True, sort=False
+            )
+            ref_texts = [ref_audio.with_suffix(".lab") for ref_audio in ref_audios]
+        if self._should_use_bundled_default(id, ref_audios):
+            ref_audios = [DEFAULT_REFERENCE_AUDIO_PATH]
+            ref_texts = [DEFAULT_REFERENCE_TEXT_PATH]
+        elif not ref_folder.exists():
+            ref_folder.mkdir(parents=True, exist_ok=True)
 
         if use_cache == "off" or id not in self.ref_by_id:
             # If the references are not already loaded, encode them
@@ -59,10 +73,7 @@ class ReferenceLoader:
                 )
                 for ref_audio in ref_audios
             ]
-            prompt_texts = [
-                read_ref_text(str(ref_audio.with_suffix(".lab")))
-                for ref_audio in ref_audios
-            ]
+            prompt_texts = [read_ref_text(str(ref_text)) for ref_text in ref_texts]
             self.ref_by_id[id] = (prompt_tokens, prompt_texts)
 
         else:
@@ -136,33 +147,47 @@ class ReferenceLoader:
             list[str]: List of valid reference IDs
         """
         ref_base_path = Path("references")
-        if not ref_base_path.exists():
-            return []
-
         valid_ids = []
-        for ref_dir in ref_base_path.iterdir():
-            if not ref_dir.is_dir():
-                continue
+        if ref_base_path.exists():
+            for ref_dir in ref_base_path.iterdir():
+                if not ref_dir.is_dir():
+                    continue
 
-            # Check if directory contains at least one audio file and corresponding .lab file
-            audio_files = list_files(
-                ref_dir, AUDIO_EXTENSIONS, recursive=False, sort=False
-            )
-            if not audio_files:
-                continue
+                # Check if directory contains at least one audio file and corresponding .lab file
+                audio_files = list_files(
+                    ref_dir, AUDIO_EXTENSIONS, recursive=False, sort=False
+                )
+                if not audio_files:
+                    continue
 
-            # Check if corresponding .lab file exists for at least one audio file
-            has_valid_pair = False
-            for audio_file in audio_files:
-                lab_file = audio_file.with_suffix(".lab")
-                if lab_file.exists():
-                    has_valid_pair = True
-                    break
+                # Check if corresponding .lab file exists for at least one audio file
+                has_valid_pair = False
+                for audio_file in audio_files:
+                    lab_file = audio_file.with_suffix(".lab")
+                    if lab_file.exists():
+                        has_valid_pair = True
+                        break
 
-            if has_valid_pair:
-                valid_ids.append(ref_dir.name)
+                if has_valid_pair:
+                    valid_ids.append(ref_dir.name)
+
+        if (
+            DEFAULT_REFERENCE_AUDIO_PATH.exists()
+            and DEFAULT_REFERENCE_TEXT_PATH.exists()
+            and DEFAULT_REFERENCE_ID not in valid_ids
+        ):
+            valid_ids.append(DEFAULT_REFERENCE_ID)
 
         return sorted(valid_ids)
+
+    def _should_use_bundled_default(
+        self, reference_id: str, ref_audios: list[Path]
+    ) -> bool:
+        return (
+            not ref_audios
+            and reference_id == DEFAULT_REFERENCE_ID
+            and has_bundled_default_reference()
+        )
 
     def add_reference(self, id: str, wav_file_path: str, reference_text: str) -> None:
         """

@@ -10,6 +10,12 @@ from pydantic.functional_validators import SkipValidation
 from typing_extensions import Annotated
 
 from fish_speech.content_sequence import TextPart, VQPart
+from fish_speech.utils.reference import (
+    DEFAULT_REFERENCE_AUDIO_NAME,
+    DEFAULT_REFERENCE_ID,
+    DEFAULT_REFERENCE_TEXT_NAME,
+    has_bundled_default_reference,
+)
 from fish_speech.text import TextNormalizationOptions
 
 
@@ -108,6 +114,19 @@ class ServeTTSRequest(BaseModel):
     class Config:
         # Allow arbitrary types for pytorch related types
         arbitrary_types_allowed = True
+
+    @model_validator(mode="after")
+    def apply_default_reference(self):
+        self.reference_id = (self.reference_id or "").strip() or None
+        if self.reference_id is None and not self.references:
+            if not has_bundled_default_reference():
+                raise ValueError(
+                    "No reference audio was provided and the bundled default reference assets "
+                    f"({DEFAULT_REFERENCE_AUDIO_NAME} and {DEFAULT_REFERENCE_TEXT_NAME}) are missing "
+                    "from the repository root."
+                )
+            self.reference_id = DEFAULT_REFERENCE_ID
+        return self
 
 
 class AddReferenceRequest(BaseModel):
