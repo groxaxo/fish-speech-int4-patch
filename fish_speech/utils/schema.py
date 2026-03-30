@@ -122,7 +122,8 @@ class ServeTTSRequest(BaseModel):
             if not has_bundled_default_reference():
                 raise ValueError(
                     "No reference audio was provided and the bundled default reference assets "
-                    f"({DEFAULT_REFERENCE_AUDIO_NAME} and {DEFAULT_REFERENCE_TEXT_NAME}) are missing."
+                    f"({DEFAULT_REFERENCE_AUDIO_NAME} and {DEFAULT_REFERENCE_TEXT_NAME}) are missing "
+                    "from the repository root."
                 )
             self.reference_id = DEFAULT_REFERENCE_ID
         return self

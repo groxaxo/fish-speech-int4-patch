@@ -47,8 +47,8 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
     )
     default_reference_info = (
         i18n(
-            f"Blank values are normalized to the default reference ID ({DEFAULT_REFERENCE_ID}). "
-            "If you upload reference audio, it will be used even if a reference ID is provided."
+            f"Blank values are normalized to the default reference ID ({DEFAULT_REFERENCE_ID}). If you upload "
+            "reference audio, it will be used even if a reference ID is provided."
         )
         if default_reference_value
         else i18n(

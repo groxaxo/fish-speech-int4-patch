@@ -2,7 +2,7 @@ from pathlib import Path
 
 try:
     import pyrootutils
-except ImportError:  # pragma: no cover
+except ImportError:
     pyrootutils = None
 
 DEFAULT_REFERENCE_ID = "default"
@@ -20,7 +20,7 @@ def get_repository_root() -> Path:
                     indicator=PROJECT_ROOT_INDICATOR,
                 )
             )
-        except Exception:
+        except (FileNotFoundError, RuntimeError, ValueError):
             pass
 
     return Path(__file__).resolve().parents[2]
