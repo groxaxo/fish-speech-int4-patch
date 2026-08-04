@@ -156,3 +156,6 @@ azure-pipelines.yml
 # /data_server/target
 # checkpoints
 # .venv
+
+# Keep the bundled default reference voice (overrides *.mp3 above)
+!sample.mp3

@@ -216,7 +216,12 @@ RUN --mount=type=cache,target=/tmp/uv-cache,uid=${USER_UID},gid=${USER_GID} \
 COPY --chown=${USER_UID}:${USER_GID} . .
 
 # Install the local package after copying source code
-RUN uv sync --extra ${UV_EXTRA} --frozen
+# inflect and bitsandbytes are declared in pyproject.toml but missing from
+# uv.lock (the lockfile was never regenerated), so install them directly; the
+# entrypoints run with --no-sync so they are not removed at startup.
+RUN uv sync --extra ${UV_EXTRA} --frozen \
+    && uv pip install "inflect>=7.4.0" \
+    && if [ "${BACKEND}" = "cuda" ]; then uv pip install "bitsandbytes>=0.43.0"; fi
 
 # Create common entrypoint script
 RUN printf '%s\n' \
@@ -345,7 +350,7 @@ RUN printf '%s\n' \
     'log "BnB4 args: ${BNB4_ARGS}"' \
     'log "Server: ${GRADIO_SERVER_NAME}:${GRADIO_SERVER_PORT}"' \
     '' \
-    'exec uv run tools/run_webui.py \' \
+    'exec uv run --no-sync tools/run_webui.py \' \
     '  --llama-checkpoint-path "${LLAMA_CHECKPOINT_PATH}" \' \
     '  --decoder-checkpoint-path "${DECODER_CHECKPOINT_PATH}" \' \
     '  --decoder-config-name "${DECODER_CONFIG_NAME}" \' \
@@ -405,7 +410,7 @@ RUN printf '%s\n' \
     'log "Lazy args: ${LAZY_ARGS}"' \
     'log "Server: ${API_SERVER_NAME}:${API_SERVER_PORT}"' \
     '' \
-    'exec uv run tools/api_server.py \' \
+    'exec uv run --no-sync tools/api_server.py \' \
     '  --listen "${API_SERVER_NAME}:${API_SERVER_PORT}" \' \
     '  --llama-checkpoint-path "${LLAMA_CHECKPOINT_PATH}" \' \
     '  --decoder-checkpoint-path "${DECODER_CHECKPOINT_PATH}" \' \

@@ -56,7 +56,7 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
         )
     )
 
-    with gr.Blocks(title="Fish Speech S2-Pro") as app:
+    with gr.Blocks(title="Fish Speech S2-Pro", theme=theme_object, css=APP_CSS) as app:
         gr.HTML(HEADER_MD)
 
         if theme in {"light", "dark"}:
@@ -221,6 +221,4 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
             concurrency_limit=1,
         )
 
-    setattr(app, "_fs_theme", theme_object)
-    setattr(app, "_fs_css", APP_CSS)
     return app

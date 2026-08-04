@@ -96,7 +96,10 @@ def _get_tts_context():
 
 
 def _audio_headers(
-    audio_format: str, chunked: bool = False, language: str | None = None
+    audio_format: str,
+    chunked: bool = False,
+    language: str | None = None,
+    seed: int | None = None,
 ) -> dict[str, str]:
     headers = {
         "Content-Disposition": f"attachment; filename=audio.{audio_format}",
@@ -107,6 +110,8 @@ def _audio_headers(
         headers["X-Accel-Buffering"] = "no"
     if language:
         headers["X-Resolved-Language"] = language
+    if seed is not None:
+        headers["X-Seed"] = str(seed)
     return headers
 
 
@@ -202,7 +207,9 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
         if req.streaming:
             return StreamResponse(
                 iterable=_tracked_stream(inference_async(req, engine)),
-                headers=_audio_headers(req.format, chunked=True, language=req.language),
+                headers=_audio_headers(
+                    req.format, chunked=True, language=req.language, seed=req.seed
+                ),
                 content_type=get_content_type(req.format),
             )
 
@@ -210,7 +217,7 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
         audio_bytes = serialize_audio_output(fake_audios, sample_rate, req.format)
         return StreamResponse(
             iterable=_tracked_stream(buffer_to_async_generator(audio_bytes)),
-            headers=_audio_headers(req.format, language=req.language),
+            headers=_audio_headers(req.format, language=req.language, seed=req.seed),
             content_type=get_content_type(req.format),
         )
     except ValueError as e:
@@ -277,7 +284,10 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
             return StreamResponse(
                 iterable=_tracked_stream(inference_async(tts_req, engine)),
                 headers=_audio_headers(
-                    tts_req.format, chunked=True, language=tts_req.language
+                    tts_req.format,
+                    chunked=True,
+                    language=tts_req.language,
+                    seed=tts_req.seed,
                 ),
                 content_type=get_content_type(tts_req.format),
             )
@@ -289,14 +299,19 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
             return StreamResponse(
                 iterable=_tracked_stream(chunk_bytes(audio_bytes)),
                 headers=_audio_headers(
-                    tts_req.format, chunked=True, language=tts_req.language
+                    tts_req.format,
+                    chunked=True,
+                    language=tts_req.language,
+                    seed=tts_req.seed,
                 ),
                 content_type=get_content_type(tts_req.format),
             )
 
         return StreamResponse(
             iterable=_tracked_stream(buffer_to_async_generator(audio_bytes)),
-            headers=_audio_headers(tts_req.format, language=tts_req.language),
+            headers=_audio_headers(
+                tts_req.format, language=tts_req.language, seed=tts_req.seed
+            ),
             content_type=get_content_type(tts_req.format),
         )
     except ValueError as e:

@@ -1,5 +1,6 @@
 import gc
 import queue
+import secrets
 from typing import Generator
 
 import numpy as np
@@ -56,10 +57,12 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 req.references, req.use_memory_cache
             )
 
-        # Set the random seed if provided
-        if req.seed is not None:
-            set_seed(req.seed)
-            logger.warning(f"set seed: {req.seed}")
+        # Always seed; draw one when not provided so the result is reproducible.
+        # The drawn seed is written back to the request so callers can report it.
+        if req.seed is None:
+            req.seed = secrets.randbits(31)
+        set_seed(req.seed)
+        logger.info(f"seed: {req.seed}")
 
         # Get the symbolic tokens from the LLAMA model
         response_queue = self.send_Llama_request(req, prompt_tokens, prompt_texts)

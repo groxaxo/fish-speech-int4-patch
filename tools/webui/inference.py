@@ -57,7 +57,11 @@ def inference_wrapper(
     for result in engine.inference(req):
         match result.code:
             case "final":
-                return result.audio, None
+                # The engine fills req.seed with the drawn seed; surface it so
+                # the generation can be reproduced later.
+                return result.audio, build_html_info_message(
+                    i18n("Seed") + f": {req.seed}"
+                )
             case "error":
                 return None, build_html_error_message(i18n(result.error))
             case _:
@@ -75,6 +79,18 @@ def get_reference_audio(reference_audio: str, reference_text: str) -> list:
         audio_bytes = audio_file.read()
 
     return [ServeReferenceAudio(audio=audio_bytes, text=reference_text)]
+
+
+def build_html_info_message(message: str) -> str:
+    return f"""
+    <div style="color: #475569;
+    background: rgba(226, 232, 240, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 14px;
+    padding: 10px 16px;">
+        {html.escape(message)}
+    </div>
+    """
 
 
 def build_html_error_message(error: Any) -> str:

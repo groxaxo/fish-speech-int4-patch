@@ -1,4 +1,5 @@
 import io
+import secrets
 from argparse import ArgumentParser, BooleanOptionalAction
 from http import HTTPStatus
 from typing import Annotated, Any, AsyncIterable
@@ -227,6 +228,10 @@ def resolve_openai_reference_id(
 def prepare_tts_request(req: ServeTTSRequest, max_text_length: int = 0) -> ServeTTSRequest:
     prepared = req.model_copy(deep=True)
     prepared.language = resolve_tts_language(prepared.text, prepared.language)
+    # Draw the seed here (not in the engine) so response headers can carry it
+    # even for streaming responses, whose headers are built before generation.
+    if prepared.seed is None:
+        prepared.seed = secrets.randbits(31)
 
     prepared.text = normalize_text_for_tts(
         prepared.text,

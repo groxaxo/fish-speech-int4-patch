@@ -1,5 +1,8 @@
 services:
   app-base:
+    # The server shuts itself down after IDLE_TIMEOUT_SECONDS of inactivity to
+    # free VRAM; restart it so the next request brings it back (lazy load).
+    restart: unless-stopped
     build:
       context: .
       dockerfile: docker/Dockerfile
