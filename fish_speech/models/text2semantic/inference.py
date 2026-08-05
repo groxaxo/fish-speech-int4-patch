@@ -904,7 +904,7 @@ def launch_thread_safe_queue(
     "--max-seq-len",
     "max_length",
     type=int,
-    default=None,
+    default=4096,
     help="Override model max_seq_len for KV-cache pre-allocation.",
 )
 @click.option(
