@@ -1,4 +1,3 @@
-import gc
 import queue
 import secrets
 from typing import Generator
@@ -121,10 +120,11 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             else:
                 break
 
-        # Clean up the memory
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            gc.collect()
+        # NOTE: deliberately no torch.cuda.empty_cache()/gc.collect() here.
+        # Releasing the allocator's cached blocks after every request forces the
+        # next one to re-issue cudaMalloc for every buffer, which costs more than
+        # it saves on a warm long-lived server. The KV cache is pre-allocated
+        # once at startup, so steady-state VRAM does not grow per request.
 
         # Edge case: no audio generated
         if len(segments) == 0:
