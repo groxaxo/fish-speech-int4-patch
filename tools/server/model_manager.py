@@ -23,8 +23,10 @@ class ModelManager:
         decoder_config_name: str,
         max_seq_len: int = 4096,
         lazy_load: bool = True,
+        codec_decode_only: bool = False,
     ) -> None:
 
+        self.codec_decode_only = codec_decode_only
         self.mode = mode
         self.device = device
         self.half = half
@@ -117,6 +119,8 @@ class ModelManager:
             config_name=config_name,
             checkpoint_path=checkpoint_path,
             device=device,
+            decode_only=self.codec_decode_only,
+            precision=self.precision if self.codec_decode_only else None,
         )
         logger.info("Decoder model loaded.")
 

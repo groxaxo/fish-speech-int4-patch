@@ -20,14 +20,35 @@ from fish_speech.utils.file import AUDIO_EXTENSIONS
 OmegaConf.register_new_resolver("eval", eval)
 
 
-def load_model(config_name, checkpoint_path, device="cuda"):
+def load_model(
+    config_name,
+    checkpoint_path,
+    device="cuda",
+    decode_only: bool = False,
+    precision: torch.dtype | None = None,
+):
+    """Load the DAC codec.
+
+    decode_only drops the analysis half of the codec. Serving only ever calls
+    from_indices(), i.e. quantizer.decode() -> decoder, which touches neither
+    the encoder nor quantizer.pre_module/downsample. Those account for ~0.96 GiB
+    of resident weights, including a 16384x16384 bool causal_mask buffer. They
+    are still needed to turn reference audio into VQ codes, so a decode-only
+    server requires reference tokens to have been precomputed
+    (tools/precompute_references.py).
+
+    precision casts the remaining floating-point weights. Decoding already runs
+    under autocast at this dtype, so fp32 weights buy no accuracy - but casting
+    is only safe alongside decode_only, because the encode path runs outside
+    autocast and would raise on a dtype mismatch.
+    """
     hydra.core.global_hydra.GlobalHydra.instance().clear()
     with initialize(version_base="1.3", config_path="../../configs"):
         cfg = compose(config_name=config_name)
 
     model = instantiate(cfg)
     state_dict = torch.load(
-        checkpoint_path, map_location=device, mmap=True, weights_only=True
+        checkpoint_path, map_location="cpu", mmap=True, weights_only=True
     )
     if "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
@@ -39,11 +60,37 @@ def load_model(config_name, checkpoint_path, device="cuda"):
             if "generator." in k
         }
 
+    if decode_only:
+        drop = ("encoder.", "quantizer.pre_module.", "quantizer.downsample.")
+        state_dict = {
+            k: v for k, v in state_dict.items() if not k.startswith(drop)
+        }
+
     result = model.load_state_dict(state_dict, strict=False, assign=True)
+
+    if decode_only:
+        # Delete before .to(device) so these never occupy VRAM at all.
+        model.encoder = None
+        model.quantizer.pre_module = None
+        model.quantizer.downsample = None
+        model.decode_only = True
+
     model.eval()
+
+    if precision is not None:
+        if not decode_only:
+            raise ValueError(
+                "precision casting requires decode_only=True: the encode path "
+                "runs outside autocast and would fail on a dtype mismatch"
+            )
+        model.to(dtype=precision)
+
     model.to(device)
 
-    logger.info(f"Loaded model: {result}")
+    logger.info(
+        f"Loaded model: {result}"
+        + (f" (decode_only, {precision})" if decode_only else "")
+    )
     return model
 
 

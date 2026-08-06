@@ -31,6 +31,7 @@ def main():
         "comparable across changes that alter RNG consumption.",
     )
     p.add_argument("--save-prefix", default=None, help="write generated wavs here")
+    p.add_argument("--codec-decode-only", action="store_true")
     args = p.parse_args()
 
     total_mib = torch.cuda.get_device_properties(0).total_memory / 2**20
@@ -61,6 +62,7 @@ def main():
             decoder_config_name=args.codec_config,
             max_seq_len=args.max_seq_len,
             lazy_load=False,
+            codec_decode_only=args.codec_decode_only,
         )
     except torch.cuda.OutOfMemoryError as e:
         print(f"\nRESULT: OOM DURING LOAD after {time.time()-t0:.0f}s")

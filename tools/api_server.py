@@ -102,6 +102,7 @@ class API(ExceptionHandler):
             decoder_config_name=self.args.decoder_config_name,
             max_seq_len=self.args.max_seq_len,
             lazy_load=self.args.lazy_load,
+            codec_decode_only=self.args.codec_decode_only,
         )
         app.state.last_request_time = time.time()
         if self.args.idle_timeout_seconds > 0:

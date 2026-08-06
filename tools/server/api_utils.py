@@ -112,6 +112,13 @@ def parse_args(argv: list[str] | None = None):
         default=4096,
         help="Override model max_seq_len for KV-cache pre-allocation (saves VRAM on small GPUs)",
     )
+    parser.add_argument(
+        "--codec-decode-only",
+        action="store_true",
+        help="Drop the codec encoder and cast the rest to the serving precision "
+        "(~1.36 GiB less VRAM). Requires reference tokens precomputed with "
+        "tools/precompute_references.py, and disables adding references at runtime.",
+    )
     parser.add_argument("--listen", type=str, default="0.0.0.0:8880")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--api-key", type=str, default=None)
