@@ -78,10 +78,14 @@ def main(
                 continue
             # Encode directly rather than via load_or_encode_reference, which
             # would return the existing cache and defeat --force.
-            codes = encoder.encode_reference(
-                reference_audio=audio_to_bytes(str(clip)),
-                enable_reference_audio=True,
-            )
+            # inference_mode matters: the engine encodes under it, and without
+            # it autograd retains encoder activations, which OOMs on clips of
+            # more than a few seconds.
+            with torch.inference_mode():
+                codes = encoder.encode_reference(
+                    reference_audio=audio_to_bytes(str(clip)),
+                    enable_reference_audio=True,
+                )
             torch.save(codes.cpu(), out)
             logger.info(f"wrote {out} {tuple(codes.shape)}")
             written += 1

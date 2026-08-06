@@ -441,6 +441,42 @@ class BaseTransformer(nn.Module):
             f"(from {self.config.vocab_size})"
         )
 
+    def offload_embeddings(self) -> None:
+        """Keep the full embedding table in host memory.
+
+        Only prefill embeds arbitrary vocabulary (the prompt text); every token
+        generated afterwards is semantic or im_end, and semantic_head already
+        holds those rows on the GPU. Moving the 155776x2560 fp16 table to the
+        host therefore frees ~0.72 GiB of VRAM without adding any per-frame
+        host traffic - the prefill gather costs one ~5 MB transfer per request.
+        """
+        if getattr(self, "semantic_head", None) is None:
+            logger.warning("Cannot offload embeddings without a semantic_head")
+            return
+        self.embeddings = self.embeddings.to("cpu")
+        self.embeddings_offloaded = True
+        logger.info("Moved embedding table to host memory")
+
+    def embed_main_tokens(self, tok: Tensor) -> Tensor:
+        """Embed the main-codebook token, using the GPU slice where possible."""
+        if not getattr(self, "embeddings_offloaded", False):
+            return self.embeddings(tok)
+
+        if tok.shape[-1] == 1:
+            # Decode step: guaranteed semantic or im_end, so the resident slice
+            # covers it. Index i < semantic_n is semantic_begin_id + i.
+            idx = torch.where(
+                tok == self.im_end_id,
+                torch.full_like(tok, self.semantic_n),
+                tok - self.config.semantic_begin_id,
+            ).clamp_(0, self.semantic_n)
+            return F.embedding(idx, self.semantic_head)
+
+        # Prefill: arbitrary vocabulary, so gather on the host and ship the
+        # result across once.
+        out = self.embeddings(tok.to("cpu"))
+        return out.to(self.semantic_head.device, non_blocking=True)
+
     def semantic_index_to_token_id(self, idx: Tensor) -> Tensor:
         """Map an index into semantic_head back to a real vocabulary id."""
         return torch.where(
@@ -537,7 +573,7 @@ class BaseTransformer(nn.Module):
         )
 
         vq_embeds_sum[~vq_masks] = 0
-        x = self.embeddings(inp[:, 0]) + vq_embeds_sum
+        x = self.embed_main_tokens(inp[:, 0]) + vq_embeds_sum
 
         if self.config.scale_codebook_embeddings:
             vq_masks_expanded = vq_masks.unsqueeze(-1).expand_as(x)

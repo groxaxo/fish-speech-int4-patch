@@ -382,6 +382,22 @@ def init_model(
         bnb4_compute_dtype=precision,
     )
 
+    # The embedding table must be held back before any device move, not moved
+    # and then evicted: the OOM this avoids happens during .to(device) itself,
+    # so the table has to never reach the GPU. Detaching it from the module tree
+    # is what keeps .to() from following it.
+    offload_embeddings = os.getenv("FISH_OFFLOAD_EMBEDDINGS", "0") == "1"
+    stashed_embeddings = None
+    if offload_embeddings:
+        if os.getenv("FISH_FULL_LM_HEAD", "0") == "1":
+            raise ValueError(
+                "FISH_OFFLOAD_EMBEDDINGS requires the sliced lm_head; "
+                "unset FISH_FULL_LM_HEAD"
+            )
+        model.build_semantic_head(model.tokenizer.get_token_id(IM_END_TOKEN))
+        stashed_embeddings = model.embeddings
+        model.embeddings = None
+
     if bnb4:
         if getattr(model, "_bnb4_prequantized", False):
             try:
@@ -421,13 +437,20 @@ def init_model(
             model = model.to(device=device)
     else:
         model = model.to(device=device, dtype=precision)
+    if offload_embeddings:
+        # Reattach on the host; embed_main_tokens now serves decode from the
+        # resident slice and only gathers here during prefill.
+        model.embeddings = stashed_embeddings
+        model.embeddings_offloaded = True
+        logger.info("Embedding table held in host memory")
+
     model._bandwidth_model_size = sum(
         p.numel() for p in model.parameters() if p.requires_grad
     )
     model._debug_prompt_structure = os.getenv("FISH_SPEECH_DEBUG_PROMPT", "0") == "1"
     logger.info(f"Restored model from checkpoint")
 
-    if os.getenv("FISH_FULL_LM_HEAD", "0") != "1":
+    if not offload_embeddings and os.getenv("FISH_FULL_LM_HEAD", "0") != "1":
         model.build_semantic_head(model.tokenizer.get_token_id(IM_END_TOKEN))
 
     if isinstance(model, DualARTransformer):
