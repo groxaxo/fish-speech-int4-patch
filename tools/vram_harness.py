@@ -32,6 +32,13 @@ def main():
     )
     p.add_argument("--save-prefix", default=None, help="write generated wavs here")
     p.add_argument("--codec-decode-only", action="store_true")
+    p.add_argument(
+        "--chunk-length",
+        type=int,
+        default=200,
+        help="Characters per generated segment. Each segment is decoded "
+        "separately, so this bounds peak codec-decode memory.",
+    )
     args = p.parse_args()
 
     total_mib = torch.cuda.get_device_properties(0).total_memory / 2**20
@@ -88,7 +95,7 @@ def main():
             references=[],
             reference_id=args.reference_id,
             max_new_tokens=1024,
-            chunk_length=200,
+            chunk_length=args.chunk_length,
             top_p=0.7,
             repetition_penalty=1.2,
             temperature=args.temperature,
