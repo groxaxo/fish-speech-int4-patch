@@ -1,3 +1,4 @@
+import os
 from typing import Callable
 
 import torch
@@ -16,10 +17,37 @@ class VQManager:
     def decode_vq_tokens(self, codes):
         logger.info(f"VQ features: {codes.shape}")
 
-        if isinstance(self.decoder_model, DAC):
+        if not isinstance(self.decoder_model, DAC):
+            raise ValueError(f"Unknown model type: {type(self.decoder_model)}")
+
+        # Decoder activations scale with utterance length - the stack expands to
+        # 44.1 kHz - so one long decode can need several times the memory the
+        # weights do. Decoding in windows bounds that. The decoder and the
+        # quantizer's post_module are causal, so a window only needs left
+        # context; its output prefix is then discarded.
+        max_frames = int(os.getenv("FISH_DECODE_WINDOW_FRAMES", "128"))
+        context_frames = int(os.getenv("FISH_DECODE_CONTEXT_FRAMES", "32"))
+
+        n_frames = codes.shape[-1]
+        if max_frames <= 0 or n_frames <= max_frames:
             return self.decoder_model.from_indices(codes[None])[0].squeeze()
 
-        raise ValueError(f"Unknown model type: {type(self.decoder_model)}")
+        logger.info(
+            f"Decoding {n_frames} frames in windows of {max_frames} "
+            f"(+{context_frames} context)"
+        )
+        segments = []
+        for start in range(0, n_frames, max_frames):
+            end = min(start + max_frames, n_frames)
+            ctx_start = max(0, start - context_frames)
+            window = codes[:, ctx_start:end]
+            audio = self.decoder_model.from_indices(window[None])[0].squeeze()
+            # Derive samples-per-frame from the decode itself rather than
+            # assuming hop_length, then drop the context prefix.
+            per_frame = audio.shape[-1] // window.shape[-1]
+            segments.append(audio[(start - ctx_start) * per_frame :])
+
+        return torch.cat(segments, dim=-1)
 
     def encode_reference(self, reference_audio, enable_reference_audio):
         if enable_reference_audio and reference_audio is not None:
