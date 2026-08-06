@@ -60,6 +60,7 @@ nav:
   - Finetune: en/finetune.md
   - Inference: en/inference.md
   - Server: en/server.md
+  - 4 GB GPU: en/4gb-laptop.md
   - Samples: en/samples.md
 
 # Plugins
