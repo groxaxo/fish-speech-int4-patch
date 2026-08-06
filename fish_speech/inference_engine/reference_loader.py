@@ -46,7 +46,14 @@ class ReferenceLoader:
     @staticmethod
     def cached_tokens_path(ref_audio) -> Path:
         """Where precomputed VQ codes for a reference clip live."""
-        return Path(ref_audio).with_suffix(".tokens.pt")
+        ref_audio = Path(ref_audio)
+        if ref_audio == DEFAULT_REFERENCE_AUDIO_PATH:
+            # The bundled clip sits at the repository root, which inside a
+            # container is an image layer: writable but discarded on exit, and
+            # read-only in some deployments. Keep its cache alongside the other
+            # references, which is the mounted, persistent location.
+            return Path("references") / DEFAULT_REFERENCE_ID / "sample.tokens.pt"
+        return ref_audio.with_suffix(".tokens.pt")
 
     def load_or_encode_reference(self, ref_audio):
         """Return VQ codes for a reference clip, preferring the on-disk cache.

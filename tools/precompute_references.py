@@ -21,6 +21,10 @@ from fish_speech.inference_engine.reference_loader import ReferenceLoader
 from fish_speech.inference_engine.vq_manager import VQManager
 from fish_speech.models.dac.inference import load_model as load_decoder_model
 from fish_speech.utils.file import AUDIO_EXTENSIONS, audio_to_bytes, list_files
+from fish_speech.utils.reference import (
+    DEFAULT_REFERENCE_AUDIO_PATH,
+    has_bundled_default_reference,
+)
 
 
 class _Encoder(VQManager, ReferenceLoader):
@@ -68,27 +72,39 @@ def main(
     )
     encoder = _Encoder(decoder_model)
 
+    clips = [
+        clip
+        for folder in folders
+        for clip in list_files(folder, AUDIO_EXTENSIONS, recursive=True, sort=True)
+    ]
+
+    # The bundled default reference lives at the repository root, not under
+    # references/. A decode-only server needs it too: warm-up and any request
+    # without a reference_id fall back to it.
+    if not reference_id and has_bundled_default_reference():
+        clips.append(DEFAULT_REFERENCE_AUDIO_PATH)
+
     written = skipped = 0
-    for folder in folders:
-        for clip in list_files(folder, AUDIO_EXTENSIONS, recursive=True, sort=True):
-            out = ReferenceLoader.cached_tokens_path(clip)
-            if out.exists() and not force:
-                logger.info(f"skip (exists): {out}")
-                skipped += 1
-                continue
-            # Encode directly rather than via load_or_encode_reference, which
-            # would return the existing cache and defeat --force.
-            # inference_mode matters: the engine encodes under it, and without
-            # it autograd retains encoder activations, which OOMs on clips of
-            # more than a few seconds.
-            with torch.inference_mode():
-                codes = encoder.encode_reference(
-                    reference_audio=audio_to_bytes(str(clip)),
-                    enable_reference_audio=True,
-                )
-            torch.save(codes.cpu(), out)
-            logger.info(f"wrote {out} {tuple(codes.shape)}")
-            written += 1
+    for clip in clips:
+        out = ReferenceLoader.cached_tokens_path(clip)
+        if out.exists() and not force:
+            logger.info(f"skip (exists): {out}")
+            skipped += 1
+            continue
+        # Encode directly rather than via load_or_encode_reference, which
+        # would return the existing cache and defeat --force.
+        # inference_mode matters: the engine encodes under it, and without
+        # it autograd retains encoder activations, which OOMs on clips of
+        # more than a few seconds.
+        with torch.inference_mode():
+            codes = encoder.encode_reference(
+                reference_audio=audio_to_bytes(str(clip)),
+                enable_reference_audio=True,
+            )
+        out.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(codes.cpu(), out)
+        logger.info(f"wrote {out} {tuple(codes.shape)}")
+        written += 1
 
     logger.info(f"done: {written} written, {skipped} skipped")
 
