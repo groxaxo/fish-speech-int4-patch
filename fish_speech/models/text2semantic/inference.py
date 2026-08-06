@@ -825,22 +825,33 @@ def launch_thread_safe_queue(
 ):
     input_queue = queue.Queue()
     init_event = threading.Event()
+    init_error: list[BaseException] = []
 
     def worker():
-        model, decode_one_token = init_model(
-            checkpoint_path,
-            device,
-            precision,
-            compile=compile,
-            max_length=max_seq_len,
-            bnb4=bnb4,
-        )
-        with torch.device(device):
-            model.setup_caches(
-                max_batch_size=1,
-                max_seq_len=model.config.max_seq_len,
-                dtype=next(model.parameters()).dtype,
+        # Model load runs outside the per-request try/except below. If it raises
+        # (OOM on a small GPU is the common case) the thread dies, and without
+        # recording it here init_event would never fire and the caller would
+        # block on init_event.wait() forever instead of surfacing the failure.
+        try:
+            model, decode_one_token = init_model(
+                checkpoint_path,
+                device,
+                precision,
+                compile=compile,
+                max_length=max_seq_len,
+                bnb4=bnb4,
             )
+            with torch.device(device):
+                model.setup_caches(
+                    max_batch_size=1,
+                    max_seq_len=model.config.max_seq_len,
+                    dtype=next(model.parameters()).dtype,
+                )
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller
+            logger.error(f"Model initialisation failed: {traceback.format_exc()}")
+            init_error.append(exc)
+            init_event.set()
+            return
         init_event.set()
 
         while True:
@@ -872,6 +883,8 @@ def launch_thread_safe_queue(
 
     threading.Thread(target=worker, daemon=True).start()
     init_event.wait()
+    if init_error:
+        raise RuntimeError("Model initialisation failed") from init_error[0]
 
     return input_queue
 
