@@ -20,7 +20,12 @@ services:
     build:
       target: server
     environment:
-      COMPILE: ${COMPILE:-0}
+      # torch.compile the decode step: much faster per token; the one-time
+      # compile cost is paid during the eager warm-up at container start.
+      COMPILE: ${COMPILE:-1}
+      # Load the model at startup instead of on first request: the hermes TTS
+      # script times out at 60s, far less than the ~3 min lazy first load.
+      ENABLE_LAZY_LOAD: ${ENABLE_LAZY_LOAD:-0}
     profiles: ["server"]
     ports:
       - "${API_PORT:-8880}:8880"
