@@ -63,7 +63,11 @@ the prompt on every request at 21.53 frames/second, so a 31.7 s clip costs 683
 prompt tokens against 220 for a 10.2 s clip. That is paid in both KV cache and
 prefill on every single request.
 
+To create a voice rather than copy one, see [Adding voices](#adding-voices).
+
 ## Run
+
+### API server
 
 ```bash
 docker compose --profile server-4gb build
@@ -78,6 +82,77 @@ docker compose --profile server-4gb up -d
 First start takes roughly 4–5 minutes (weight load, `torch.compile`, warm-up).
 `/v1/health` returns 200 only once the model is ready, so it doubles as a
 readiness probe.
+
+### WebUI
+
+```bash
+docker compose --profile webui-4gb build
+docker compose --profile webui-4gb up -d
+```
+
+Measured peak 3.18 GB. Roughly 5 minutes to start, of which ~116 s is
+`torch.compile` — paid once at startup rather than on the first request.
+
+**Run one or the other, never both.** Each profile loads its own copy of the
+model, so two will not fit on a 4 GB card:
+
+```bash
+docker compose --profile server-4gb down
+docker compose --profile webui-4gb up -d
+```
+
+Uploading reference audio through the WebUI does **not** work in this mode: the
+codec has no encoder. Only voices already under `references/` with precomputed
+tokens are selectable. See [Adding voices](#adding-voices).
+
+## Network access
+
+Both services bind `0.0.0.0` inside the container and Docker publishes on all
+host interfaces.
+
+| Service | Port | URL |
+|---|---|---|
+| API server | 8880 | `http://<host-ip>:8880/v1/tts` |
+| WebUI | 7860 | `http://<host-ip>:7860` |
+
+On Windows, add a firewall rule from an elevated PowerShell:
+
+```powershell
+New-NetFirewallRule -DisplayName "fish-speech" -Direction Inbound `
+  -Protocol TCP -LocalPort 8880,7860 -Action Allow
+```
+
+**This server has no authentication.** Reach it over Tailscale or another
+private network rather than exposing the port to an untrusted LAN. For a remote
+client, use the host's Tailscale address (`tailscale ip -4`), not its LAN IP.
+
+## Adding voices
+
+Reference encoding needs the codec encoder, which the 4 GB profiles do not
+load. `tools/precompute_references.py` loads the full codec itself and no
+language model, so it still runs on a 4 GB card — but its activations scale
+with clip length:
+
+| clip | peak |
+|---|---|
+| 10.2 s | 2254 MiB |
+| 31.7 s | 3670 MiB — 26 MiB under the cap |
+
+So on a 4 GB card, **keep reference clips to about 10 seconds**. That is the
+right choice anyway: a 31.7 s clip costs 683 prompt tokens on every request
+against 220 for a 10.2 s one.
+
+To add a voice:
+
+```bash
+# references/<id>/sample.wav + references/<id>/sample.lab
+docker compose run --rm --entrypoint uv server-4gb \
+  run --no-sync python tools/precompute_references.py --reference-id <id>
+```
+
+Stop the running server first — precompute needs the GPU to itself at this
+budget. For longer clips, precompute on a larger GPU and copy the resulting
+`sample.tokens.pt` across.
 
 ## Known limitation: long utterances
 
@@ -132,6 +207,7 @@ so cloned voices are bit-identical to the stock server.
 | `MAX_SEQ_LEN` | `2048` | KV cache and causal mask size |
 | `FISH_FULL_LM_HEAD` | unset | Set to `1` to restore the full projection (incompatible with the offload) |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | Reduces allocator fragmentation |
+| `API_PORT` / `GRADIO_PORT` | `8880` / `7860` | Published host ports |
 
 ## If it still runs out of memory
 
@@ -139,11 +215,16 @@ The measurements above come from a simulated 4 GB card on a 16 GB one. Two
 things that simulation cannot model: Windows' desktop compositor reserving part
 of a real card, and the 3050's weaker compute.
 
-In order of preference:
+The desktop point is the big one: a card that is also driving a display starts
+400–800 MB down before anything loads, against a measured peak of ~3.2–3.5 GB.
 
-1. Drop `MAX_SEQ_LEN` to `1536` (safe with a 10 s reference).
-2. Switch to the shorter reference clip if you are using a 30 s one.
-3. Run the display off the integrated GPU so the 3050 is dedicated.
+In order of impact:
+
+1. **Run the display off the integrated GPU** so the discrete card is dedicated
+   to compute. On a laptop this is usually a BIOS setting or a per-application
+   preference in the NVIDIA control panel.
+2. Switch to a ~10 s reference clip if you are using a longer one.
+3. Drop `MAX_SEQ_LEN` to `1536` (safe with a 10 s reference).
 4. Reduce `--max-new-tokens` in the request, which lowers the KV high-water
    mark.
 
