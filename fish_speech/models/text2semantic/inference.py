@@ -438,11 +438,13 @@ def init_model(
     else:
         model = model.to(device=device, dtype=precision)
     if offload_embeddings:
-        # Reattach on the host; embed_main_tokens now serves decode from the
-        # resident slice and only gathers here during prefill.
-        model.embeddings = stashed_embeddings
+        # Reattach on the host, in the serving precision. Detaching the table
+        # above also hid it from the dtype cast that follows the device move, so
+        # without this it stays fp32 and every activation derived from it does
+        # too - which then mismatches the fp16 semantic_head at the lm_head.
+        model.embeddings = stashed_embeddings.to(dtype=precision)
         model.embeddings_offloaded = True
-        logger.info("Embedding table held in host memory")
+        logger.info(f"Embedding table held in host memory ({precision})")
 
     model._bandwidth_model_size = sum(
         p.numel() for p in model.parameters() if p.requires_grad
@@ -760,9 +762,17 @@ def generate_long(
                     f"Audio masks non-zero count: {torch.count_nonzero(audio_masks)}"
                 )
 
-            if encoded.size(1) > max_length - 2048:
+            # Reserve room for what this request may actually generate rather
+            # than a hardcoded 2048. The constant assumed a large context: with
+            # max_seq_len tuned down to fit a small GPU it made the usable
+            # prompt length zero, or negative.
+            # max_new_tokens=0 means "generate into whatever context remains",
+            # so fall back to reserving half the window rather than nothing.
+            prompt_budget = max_length - (max_new_tokens or max_length // 2)
+            if encoded.size(1) > prompt_budget:
                 raise ValueError(
-                    f"Prompt is too long: {encoded.size(1)} > {max_length - 2048}"
+                    f"Prompt is too long: {encoded.size(1)} > {prompt_budget} "
+                    f"(max_seq_len {max_length} - max_new_tokens {max_new_tokens})"
                 )
 
             encoded = encoded.to(device=device)
