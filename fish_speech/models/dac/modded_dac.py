@@ -104,16 +104,26 @@ class Transformer(nn.Module):
         )
         self.norm = RMSNorm(config.dim, eps=config.norm_eps)
 
+        # These are sized from config.block_size, the declared maximum sequence
+        # length for this transformer (2048 for the quantizer modules, 8192 for
+        # the encoder/decoder ones). They used to be hardcoded at 327680 and
+        # 32768 regardless of config, which made the causal mask alone
+        # 32768^2 bytes = 1.0 GiB of VRAM per instance - dead weight, since the
+        # codec runs at 21.53 Hz and never approaches that many positions.
+        max_positions = config.block_size
+
         # Only compute RoPE frequencies if using RoPE
         if config.pos_embed_type == "rope":
             freqs_cis = precompute_freqs_cis(
-                327680, self.config.head_dim, self.config.rope_base
+                max_positions, self.config.head_dim, self.config.rope_base
             )
             self.register_buffer("freqs_cis", freqs_cis, persistent=False)
         else:
             self.register_buffer("freqs_cis", None)
 
-        causal_mask = torch.tril(torch.ones(32768, 32768, dtype=torch.bool))
+        causal_mask = torch.tril(
+            torch.ones(max_positions, max_positions, dtype=torch.bool)
+        )
         self.register_buffer("causal_mask", causal_mask, persistent=False)
 
         self.max_batch_size = -1
