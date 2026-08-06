@@ -23,6 +23,14 @@ def main():
     p.add_argument("--compile", action="store_true")
     p.add_argument("--bnb4", action="store_true")
     p.add_argument("--no-warmup", action="store_true")
+    p.add_argument(
+        "--temperature",
+        type=float,
+        default=0.7,
+        help="Set near 0 to make sampling effectively greedy, which makes runs "
+        "comparable across changes that alter RNG consumption.",
+    )
+    p.add_argument("--save-prefix", default=None, help="write generated wavs here")
     args = p.parse_args()
 
     total_mib = torch.cuda.get_device_properties(0).total_memory / 2**20
@@ -81,7 +89,7 @@ def main():
             chunk_length=200,
             top_p=0.7,
             repetition_penalty=1.2,
-            temperature=0.7,
+            temperature=args.temperature,
             format="wav",
             seed=12345,
         )
@@ -101,6 +109,15 @@ def main():
         wall = time.time() - t
         sr, arr = audio
         dur = len(arr) / sr
+        if args.save_prefix:
+            import hashlib
+
+            import soundfile as sf
+
+            path = f"{args.save_prefix}_{label}_{len(rows)}.wav"
+            sf.write(path, arr, sr)
+            digest = hashlib.sha256(arr.tobytes()).hexdigest()[:16]
+            print(f"  saved {path} sha256={digest}")
         rows.append((label, wall, dur))
         print(f"{label:8s} {wall:7.2f} {dur:7.2f} {wall/dur:6.2f} {peak():9.0f}", flush=True)
 
