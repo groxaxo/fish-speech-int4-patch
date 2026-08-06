@@ -29,3 +29,33 @@ services:
     profiles: ["server"]
     ports:
       - "${API_PORT:-8880}:8880"
+
+  # Same server, tuned for a 4 GB card (RTX 3050 Laptop). Measured at 3534 MiB
+  # peak with marginal RTF 0.531 on a 4096 MiB budget.
+  #
+  # Reference tokens must exist before starting, because the codec is loaded
+  # without its encoder:
+  #   docker compose run --rm --entrypoint uv server-4gb \
+  #     run --no-sync python tools/precompute_references.py
+  #
+  # Utterances beyond ~10-13 s still exceed this budget during codec decode.
+  server-4gb:
+    extends:
+      file: compose.base.yml
+      service: app-base
+    build:
+      target: server
+    environment:
+      COMPILE: ${COMPILE:-1}
+      ENABLE_LAZY_LOAD: ${ENABLE_LAZY_LOAD:-0}
+      # Keep the 155776x2560 fp16 embedding table in host memory; decode reads
+      # the resident 4097-row slice instead. ~0.72 GiB.
+      FISH_OFFLOAD_EMBEDDINGS: "1"
+      # Drop the codec encoder and cast the decode path to fp16. ~1.36 GiB.
+      CODEC_DECODE_ONLY: "1"
+      # 2048 is ~2x the real worst case (prompt + up to 1023 generated frames).
+      MAX_SEQ_LEN: ${MAX_SEQ_LEN:-2048}
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    profiles: ["server-4gb"]
+    ports:
+      - "${API_PORT:-8880}:8880"

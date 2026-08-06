@@ -402,12 +402,18 @@ RUN printf '%s\n' \
     'HALF_ARGS=$(build_half_args)' \
     'BNB4_ARGS=$(build_bnb4_args)' \
     'LAZY_ARGS=$(build_lazy_args)' \
+    'DECODE_ONLY_ARGS=""' \
+    'if [ "${CODEC_DECODE_ONLY:-0}" = "1" ]; then' \
+    '    DECODE_ONLY_ARGS="--codec-decode-only"' \
+    'fi' \
     '' \
     'log "Device args: ${DEVICE_ARGS:-none}"' \
     'log "Compile args: ${COMPILE_ARGS}"' \
     'log "Half args: ${HALF_ARGS}"' \
     'log "BnB4 args: ${BNB4_ARGS}"' \
     'log "Lazy args: ${LAZY_ARGS}"' \
+    'log "Codec args: ${DECODE_ONLY_ARGS:-none}"' \
+    'log "Offload embeddings: ${FISH_OFFLOAD_EMBEDDINGS:-0}"' \
     'log "Server: ${API_SERVER_NAME}:${API_SERVER_PORT}"' \
     '' \
     'exec uv run --no-sync tools/api_server.py \' \
@@ -417,7 +423,7 @@ RUN printf '%s\n' \
     '  --decoder-config-name "${DECODER_CONFIG_NAME}" \' \
     '  --idle-timeout-seconds "${IDLE_TIMEOUT_SECONDS:-300}" \' \
     '  --max-seq-len "${MAX_SEQ_LEN:-4096}" \' \
-    '  ${DEVICE_ARGS} ${COMPILE_ARGS} ${HALF_ARGS} ${BNB4_ARGS} ${LAZY_ARGS}' \
+    '  ${DEVICE_ARGS} ${COMPILE_ARGS} ${HALF_ARGS} ${BNB4_ARGS} ${LAZY_ARGS} ${DECODE_ONLY_ARGS}' \
     > /app/start_server.sh && chmod +x /app/start_server.sh
 
 # Health check
