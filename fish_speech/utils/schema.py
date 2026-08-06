@@ -98,7 +98,9 @@ class ServeTTSRequest(BaseModel):
     # Just pass 7f92f8afb8ec43bf81429cc1c9199cb1
     reference_id: str | None = None
     seed: int | None = None
-    use_memory_cache: Literal["on", "off"] = "off"
+    # Cache encoded reference audio by id/hash; avoids re-encoding the
+    # reference clip (~0.6 s) on every request.
+    use_memory_cache: Literal["on", "off"] = "on"
     # Normalize text for en & zh, this increase stability for numbers
     normalize: bool = True
     normalization_options: TextNormalizationOptions = Field(
