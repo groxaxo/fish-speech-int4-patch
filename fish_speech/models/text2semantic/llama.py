@@ -408,6 +408,47 @@ class BaseTransformer(nn.Module):
                 dtype=dtype,
             )
 
+    def build_semantic_head(self, im_end_id: int) -> None:
+        """Cache the only output rows generation can ever select.
+
+        Decoding is constrained to the semantic block plus im_end, so the tied
+        lm_head only needs those rows. Slicing it turns a 155776-row projection
+        into a 4097-row one, which is ~0.72 GiB less weight traffic per frame.
+        Index i < semantic_n maps back to semantic_begin_id + i; the final index
+        is im_end.
+        """
+        b, e = self.config.semantic_begin_id, self.config.semantic_end_id
+        if not (0 <= b <= e < self.config.vocab_size):
+            logger.warning(
+                f"Semantic range {b}-{e} invalid for vocab {self.config.vocab_size}; "
+                "keeping the full lm_head."
+            )
+            return
+
+        if self.config.tie_word_embeddings:
+            w = self.embeddings.weight
+        else:
+            w = self.output.weight
+        self.register_buffer(
+            "semantic_head",
+            torch.cat([w[b : e + 1], w[im_end_id : im_end_id + 1]], dim=0).clone(),
+            persistent=False,
+        )
+        self.semantic_n = e - b + 1
+        self.im_end_id = im_end_id
+        logger.info(
+            f"Sliced lm_head to {self.semantic_head.shape[0]} reachable rows "
+            f"(from {self.config.vocab_size})"
+        )
+
+    def semantic_index_to_token_id(self, idx: Tensor) -> Tensor:
+        """Map an index into semantic_head back to a real vocabulary id."""
+        return torch.where(
+            idx < self.semantic_n,
+            idx + self.config.semantic_begin_id,
+            torch.full_like(idx, self.im_end_id),
+        )
+
     def embed(self, inp: Tensor) -> Tensor:
         embeds = []
 
@@ -536,6 +577,13 @@ class BaseTransformer(nn.Module):
 
         if self.config.is_reward_model:
             token_logits = self.score_output(slow_out)
+        elif getattr(self, "semantic_head", None) is not None:
+            # Generation can only ever emit a semantic token or im_end (see the
+            # -inf logit bias in inference.generate_long), so projecting onto the
+            # full vocab computes ~155k logits per frame and discards all but
+            # 4097 of them. Project onto just the reachable rows instead; callers
+            # map the resulting index back to a real token id.
+            token_logits = F.linear(slow_out, self.semantic_head)
         elif self.config.tie_word_embeddings:
             token_logits = F.linear(slow_out, self.embeddings.weight)
         else:

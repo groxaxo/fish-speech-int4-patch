@@ -111,16 +111,21 @@ def decode_one_token_ar(
         audio_masks=audio_masks,
         audio_parts=audio_parts,
     )
-    logits = forward_result.logits  # (1, 1, vocab_size)
+    logits = forward_result.logits  # (1, 1, vocab_size) or (1, 1, semantic_n + 1)
     hidden_states = forward_result.hidden_states
 
-    # Apply constrained decoding: only allow semantic tokens + im_end
-    biased_logits = logits + semantic_logit_bias
+    # A sliced lm_head only emits reachable columns, so the -inf bias is both
+    # unnecessary and the wrong width; sampled indices are mapped back to real
+    # vocabulary ids so everything downstream sees ordinary token ids.
+    sliced_head = getattr(model, "semantic_head", None) is not None
+    biased_logits = logits if sliced_head else logits + semantic_logit_bias
 
     # Normal sample
     main_token_normal = sample(
         biased_logits, temperature=temperature, top_p=top_p, top_k=top_k
     )[0]
+    if sliced_head:
+        main_token_normal = model.semantic_index_to_token_id(main_token_normal)
 
     # RAS: also sample with high temp to use as fallback if token repeats
     high_temp = torch.tensor(
@@ -130,6 +135,8 @@ def decode_one_token_ar(
     main_token_high = sample(
         biased_logits, temperature=high_temp, top_p=high_top_p, top_k=top_k
     )[0]
+    if sliced_head:
+        main_token_high = model.semantic_index_to_token_id(main_token_high)
 
     # Use high-temp sample if: token is semantic AND token is in previous window
     if previous_tokens is not None:
@@ -419,6 +426,9 @@ def init_model(
     )
     model._debug_prompt_structure = os.getenv("FISH_SPEECH_DEBUG_PROMPT", "0") == "1"
     logger.info(f"Restored model from checkpoint")
+
+    if os.getenv("FISH_FULL_LM_HEAD", "0") != "1":
+        model.build_semantic_head(model.tokenizer.get_token_id(IM_END_TOKEN))
 
     if isinstance(model, DualARTransformer):
         decode_one_token = decode_one_token_ar
