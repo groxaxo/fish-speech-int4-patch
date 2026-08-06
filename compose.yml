@@ -59,3 +59,25 @@ services:
     profiles: ["server-4gb"]
     ports:
       - "${API_PORT:-8880}:8880"
+
+  # WebUI with the same 4 GB tuning as server-4gb. Run one or the other, never
+  # both: each loads its own copy of the model.
+  #
+  # The codec has no encoder here, so uploading new reference audio through the
+  # UI will not work - only voices already under references/ with precomputed
+  # tokens are selectable.
+  webui-4gb:
+    extends:
+      file: compose.base.yml
+      service: app-base
+    build:
+      target: webui
+    environment:
+      COMPILE: ${COMPILE:-1}
+      FISH_OFFLOAD_EMBEDDINGS: "1"
+      CODEC_DECODE_ONLY: "1"
+      MAX_SEQ_LEN: ${MAX_SEQ_LEN:-2048}
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    profiles: ["webui-4gb"]
+    ports:
+      - "${GRADIO_PORT:-7860}:7860"

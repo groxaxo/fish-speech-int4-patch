@@ -73,7 +73,7 @@
 
 ## Default Deployment: S2-Pro on a Single 12 GB GPU
 
-This fork is tuned to make **Fish Speech S2-Pro feel practical on everyday hardware**. The default path is now a polished **RTX 3060 / 12 GB** deployment with:
+This fork is tuned to make **Fish Speech S2-Pro feel practical on everyday hardwzxare**. The default path is now a polished **RTX 3060 / 12 GB** deployment with:
 
 - **bitsandbytes NF4 4-bit quantization** via `--bnb4`
 - **lazy model loading** so the API starts fast and loads weights on first inference

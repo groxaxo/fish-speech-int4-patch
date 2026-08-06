@@ -52,6 +52,14 @@ def parse_args(argv: list[str] | None = None):
         default=4096,
         help="Override model max_seq_len for KV-cache pre-allocation.",
     )
+    parser.add_argument(
+        "--codec-decode-only",
+        action="store_true",
+        help="Drop the codec encoder and cast the rest to the serving precision "
+        "(~1.36 GiB less VRAM). Requires reference tokens precomputed with "
+        "tools/precompute_references.py, and disables uploading new reference "
+        "audio through the UI.",
+    )
     parser.add_argument("--max-gradio-length", type=int, default=0)
     parser.add_argument("--theme", type=str, default="system")
 
@@ -88,6 +96,8 @@ if __name__ == "__main__":
         config_name=args.decoder_config_name,
         checkpoint_path=args.decoder_checkpoint_path,
         device=args.device,
+        decode_only=args.codec_decode_only,
+        precision=args.precision if args.codec_decode_only else None,
     )
 
     logger.info("Decoder model loaded, warming up...")
