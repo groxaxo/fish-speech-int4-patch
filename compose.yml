@@ -53,7 +53,10 @@ services:
       FISH_OFFLOAD_EMBEDDINGS: "1"
       # Drop the codec encoder and cast the decode path to fp16. ~1.36 GiB.
       CODEC_DECODE_ONLY: "1"
-      # 2048 is ~2x the real worst case (prompt + up to 1023 generated frames).
+      # Both the KV cache and the torch.compile workspace scale with this, so
+      # raising it to widen the prompt budget costs more memory than it buys.
+      # Lower max_new_tokens per request instead - the budget is
+      # max_seq_len - max_new_tokens.
       MAX_SEQ_LEN: ${MAX_SEQ_LEN:-2048}
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     profiles: ["server-4gb"]

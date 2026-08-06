@@ -610,6 +610,56 @@ def group_turns_into_batches(
     return batches
 
 
+def split_plain_text_into_batches(text: str, max_bytes: int = 300) -> list[str]:
+    """Split text with no speaker tags into batches at sentence boundaries.
+
+    Speaker-tagged text is batched by group_turns_into_batches; plain text used
+    to bypass batching entirely and be generated in one pass. That makes one
+    decode as long as the whole utterance, and codec decode activations scale
+    with length, so long inputs exhaust a small GPU.
+
+    Batches are joined back with the same separator the tagged path uses, and
+    each one is generated with the previously generated codes in context, so
+    prosody carries across the boundary.
+    """
+    # Keep the delimiter attached to the sentence it ends. Paragraph breaks are
+    # split points too, since they are natural pauses.
+    pieces = [
+        p.strip()
+        for p in re.split(r"(?<=[.!?;:。！？；：\n])\s+", text.strip())
+        if p.strip()
+    ]
+
+    batches: list[str] = []
+    current: list[str] = []
+    current_bytes = 0
+
+    for piece in pieces:
+        piece_bytes = len(piece.encode("utf-8"))
+
+        # A single sentence over the limit still has to go somewhere; emit it
+        # alone rather than splitting mid-sentence, which would cut prosody.
+        if piece_bytes > max_bytes:
+            if current:
+                batches.append("\n".join(current))
+                current, current_bytes = [], 0
+            batches.append(piece)
+            continue
+
+        # +1 for the "\n" that will join this piece to the current batch.
+        if current and current_bytes + piece_bytes + 1 > max_bytes:
+            batches.append("\n".join(current))
+            current, current_bytes = [piece], piece_bytes
+        else:
+            current.append(piece)
+            current_bytes += piece_bytes
+
+    if current:
+        batches.append("\n".join(current))
+
+    return batches or [text]
+
+
 def generate_long(
     *,
     model,
@@ -697,6 +747,8 @@ def generate_long(
         batches = group_turns_into_batches(
             turns, max_speakers=5, max_bytes=chunk_length
         )
+    elif iterative_prompt and chunk_length > 0:
+        batches = split_plain_text_into_batches(text, max_bytes=chunk_length)
     else:
         batches = [text]
 
