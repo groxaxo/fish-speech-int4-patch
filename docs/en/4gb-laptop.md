@@ -154,34 +154,80 @@ Stop the running server first — precompute needs the GPU to itself at this
 budget. For longer clips, precompute on a larger GPU and copy the resulting
 `sample.tokens.pt` across.
 
-## Known limitation: long utterances
+## Long text
 
-**Audio beyond roughly 10–13 seconds runs out of memory during codec decode.**
+Codec decode activations scale with utterance length, because the decoder stack
+expands to 44.1 kHz. Generating a long passage in one pass exhausts a 4 GB card:
 
-Decoder activations scale with utterance length, because the decoder stack
-expands to 44.1 kHz. Peak VRAM by output length:
-
-| audio | peak |
+| audio in one decode | peak |
 |---|---|
 | load only | 3030 MiB |
 | 1.6 s | 3052 MiB |
 | 5.9 s | 3394 MiB |
 | 13.8 s | 3648 MiB — OOM |
 
-Work around it by capping reply length, or by splitting text at sentence
-boundaries client-side and issuing one request per sentence.
+The fix is to keep each decode small by lowering `chunk_length`, which splits
+the text at sentence boundaries. Each batch is generated with the previous
+batch's codes in context, so prosody carries across the joins.
 
-Two approaches that do **not** work, both verified:
+**For anything longer than a couple of sentences, send:**
 
-- **Windowing the codec decode** with left context measures 12.2 dB SNR against
-  a single-pass decode, with error spread evenly rather than concentrated at
-  window boundaries. Causal does not imply a finite receptive field here:
-  `post_module` is a `WindowLimitedTransformer` with `window_size: 128` and the
-  decoder carries four transformer layers of its own. A working version would
-  have to carry KV state across windows rather than merely prepend context.
-- **Lowering `chunk_length`** has no effect. Splitting is driven by
-  `<|speaker:N|>` tags, so plain text always logs
-  `Split into 0 turns, grouped into 1 batches` and decodes in a single pass.
+```json
+{
+  "text": "...",
+  "reference_id": "beatrice10",
+  "chunk_length": 100,
+  "max_new_tokens": 512
+}
+```
+
+Measured on a 578-character, five-paragraph input (~37.6 s of speech):
+
+| `chunk_length` | batches | result |
+|---|---|---|
+| 200 (default) | 4 | OOM |
+| **100** | **9** | **OK — 42.5 s wall, RTF 1.13** |
+
+Note the RTF above 1: many small batches cost more than one large one, since
+per-batch overhead is paid repeatedly. That is the trade for fitting the
+budget. Short replies still run at RTF 0.5–0.9 with default settings.
+
+### Why `max_new_tokens` and not `max_seq_len`
+
+The prompt budget is `max_seq_len - max_new_tokens`. When that budget is too
+small the request fails with `Prompt is too long: N > M`.
+
+Raise the budget by **lowering `max_new_tokens`**, not by raising
+`max_seq_len`. Both the KV cache and the `torch.compile` workspace scale with
+`max_seq_len`, so raising it costs more memory than it buys:
+
+| `max_seq_len` / `max_new_tokens` | load peak | result |
+|---|---|---|
+| 2048 / 1024 | 3030 MiB | prompt budget 1024 — too small at 4 batches |
+| 4096 / 1024 | 3372 MiB | OOM during generation |
+| 3072 / 512 | 3190 MiB | OOM during generation |
+| **2048 / 512** | **3030 MiB** | **works** |
+
+`max_new_tokens: 512` is ample per batch: a 100-byte batch is roughly 5 s of
+speech, about 110 frames.
+
+### The remaining ceiling
+
+Each batch is generated with the previous batch's codes in context, so **the
+prompt grows with total text length**, not with per-batch length. There is
+therefore a limit on how much text one request can synthesize regardless of
+`chunk_length`. Around 600 characters is comfortable; beyond that, split at
+paragraph boundaries client-side and issue one request per paragraph, which
+starts each with a fresh context.
+
+### An approach that does not work
+
+**Windowing the codec decode** with left context measures 12.2 dB SNR against a
+single-pass decode, with error spread evenly rather than concentrated at window
+boundaries. Causal does not imply a finite receptive field here: `post_module`
+is a `WindowLimitedTransformer` with `window_size: 128` and the decoder carries
+four transformer layers of its own. A working version would have to carry KV
+state across windows rather than merely prepend context.
 
 ## What the profile changes
 
