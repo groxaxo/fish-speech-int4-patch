@@ -4,9 +4,9 @@ Deployment guide for the `server-4gb` profile, tuned for an RTX 3050 Laptop
 (4 GB). Measured on a simulated 4096 MiB budget:
 
 ```
-peak reserved : 3534 MiB of 4096 MiB
-latency fit   : wall = 0.32s + 0.531 * audio_duration
-RTF           : short 0.86  medium 0.60  long 0.58
+peak reserved : 3294 MiB of 4096 MiB   (3462 MiB on a 44 s utterance)
+latency fit   : wall = 0.53s + 0.622 * audio_duration
+RTF           : short 0.89  medium 0.68  long 0.66   (steady-state)
 ```
 
 The stock configuration cannot load at this budget at all — it runs out of
@@ -157,18 +157,14 @@ budget. For longer clips, precompute on a larger GPU and copy the resulting
 ## Long text
 
 Codec decode activations scale with utterance length, because the decoder stack
-expands to 44.1 kHz. Generating a long passage in one pass exhausts a 4 GB card:
-
-| audio in one decode | peak |
-|---|---|
-| load only | 3030 MiB |
-| 1.6 s | 3052 MiB |
-| 5.9 s | 3394 MiB |
-| 13.8 s | 3648 MiB — OOM |
-
-The fix is to keep each decode small by lowering `chunk_length`, which splits
-the text at sentence boundaries. Each batch is generated with the previous
-batch's codes in context, so prosody carries across the joins.
+expands to 44.1 kHz — unchunked, a 13.8 s decode peaks at 3648 MiB and OOMs.
+The 4 GB profiles therefore decode the codec's conv stack in 64-frame (~3 s)
+chunks (`FISH_DECODE_CHUNK_FRAMES=64`): each chunk carries 32 frames of left
+context that is cropped from the output, which is *exact* — causal convolutions
+have a finite receptive field (measured: 10 frames), so beyond it the chunk
+boundary has zero influence. Verified against single-pass decode down to the
+float64 rounding floor (~295 dB SNR); in serving precision the chunked output
+is as close to an fp32 reference as the unchunked one.
 
 **For anything longer than a couple of sentences, send:**
 
@@ -176,21 +172,26 @@ batch's codes in context, so prosody carries across the joins.
 {
   "text": "...",
   "reference_id": "beatrice10",
-  "chunk_length": 100,
   "max_new_tokens": 512
 }
 ```
 
-Measured on a 578-character, five-paragraph input (~37.6 s of speech):
+`chunk_length` can stay at its default of 200. Measured on a 578-character,
+five-paragraph input under the 4096 MiB budget:
 
-| `chunk_length` | batches | result |
-|---|---|---|
-| 200 (default) | 4 | OOM |
-| **100** | **9** | **OK — 42.5 s wall, RTF 1.13** |
+| `chunk_length` | wall | audio | RTF | peak |
+|---|---|---|---|---|
+| **200 (default)** | **24.3 s** | **38.1 s** | **0.64** | **3440 MiB** |
+| 100 | 28.5 s | 39.7 s | 0.72 | 3462 MiB |
+| 300 | 22.7 s | 43.7 s | 0.52 | 3462 MiB |
+| 200, chunked decode off | 21.0 s | 38.1 s | 0.55 | 3700 MiB — 4 MiB under the cap |
 
-Note the RTF above 1: many small batches cost more than one large one, since
-per-batch overhead is paid repeatedly. That is the trade for fitting the
-budget. Short replies still run at RTF 0.5–0.9 with default settings.
+The last row is why chunking is on by default: without it the same request
+only survives by luck, and a real card driving a display does not have that
+luck. The ~15% wall-time cost on long utterances is the overlap recompute.
+Before chunked decode existed, this text OOM'd at `chunk_length` 200 and the
+only working configuration was `chunk_length: 100` at RTF 1.13 — both the OOM
+and the above-realtime RTF are gone.
 
 ### Why `max_new_tokens` and not `max_seq_len`
 
@@ -220,14 +221,18 @@ therefore a limit on how much text one request can synthesize regardless of
 paragraph boundaries client-side and issue one request per paragraph, which
 starts each with a fresh context.
 
-### An approach that does not work
+### Why the chunking sits below `post_module`
 
-**Windowing the codec decode** with left context measures 12.2 dB SNR against a
-single-pass decode, with error spread evenly rather than concentrated at window
-boundaries. Causal does not imply a finite receptive field here: `post_module`
-is a `WindowLimitedTransformer` with `window_size: 128` and the decoder carries
-four transformer layers of its own. A working version would have to carry KV
-state across windows rather than merely prepend context.
+An earlier attempt windowed the *whole* decode, `post_module` included, and
+measured 12.2 dB SNR — audibly broken. `post_module` is an 8-layer
+`WindowLimitedTransformer` (`window_size: 128`); stacking 8 window-128
+attention layers gives a receptive field of ~1000 frames, far more left
+context than was prepended. The working design runs `post_module` in one pass
+— it operates at 21.5 Hz *before* upsampling, where a 30 s utterance is ~1 MB
+of activations — and chunks only the conv stack below it, whose receptive
+field is genuinely finite. (The config declares transformer layers inside the
+decoder too, but `DecoderBlock` constructs and discards them without adding
+them to its Sequential — the running decoder is pure causal convolution.)
 
 ## What the profile changes
 
@@ -240,6 +245,8 @@ Every item below is waste removal — none trades audio quality.
 | Codec loaded decode-only, fp16 | 1.36 GiB | Serving calls `from_indices()`, which never touches the encoder |
 | Codec mask sized from `config.block_size` | 1.0 GiB | Was hardcoded `32768²`, ignoring a declared `block_size` of 8192 |
 | `max_seq_len` 2048 | 0.28 GiB | Real worst case is ~1900 tokens; 32768 was inherited from a text-LLM config |
+| Codec conv stack decoded in 64-frame chunks | ~250 MiB on long utterances, and decode stops scaling with length | Overlap-crop past the convs' 10-frame receptive field is exact; verified to the float64 rounding floor |
+| Weight norm folded at load (all profiles) | per-forward weight temporaries | `w = g·v/‖v‖` computed once instead of every call — bit-identical output |
 
 Reference encoding still runs at full fp32 in `tools/precompute_references.py`,
 so cloned voices are bit-identical to the stock server.
@@ -252,6 +259,8 @@ so cloned voices are bit-identical to the stock server.
 | `CODEC_DECODE_ONLY` | `1` | Drop the codec encoder, cast decode path to fp16 |
 | `MAX_SEQ_LEN` | `2048` | KV cache and causal mask size |
 | `FISH_FULL_LM_HEAD` | unset | Set to `1` to restore the full projection (incompatible with the offload) |
+| `FISH_DECODE_CHUNK_FRAMES` | `64` | Codec conv-stack chunk size in 21.5 Hz frames; `0` disables chunking |
+| `FISH_DECODE_OVERLAP_FRAMES` | unset (code default 32) | Left context per chunk; exactness needs ≥ 10 |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | Reduces allocator fragmentation |
 | `API_PORT` / `GRADIO_PORT` | `8880` / `7860` | Published host ports |
 
@@ -270,8 +279,10 @@ In order of impact:
    to compute. On a laptop this is usually a BIOS setting or a per-application
    preference in the NVIDIA control panel.
 2. Switch to a ~10 s reference clip if you are using a longer one.
-3. Drop `MAX_SEQ_LEN` to `1536` (safe with a 10 s reference).
-4. Reduce `--max-new-tokens` in the request, which lowers the KV high-water
+3. Drop `FISH_DECODE_CHUNK_FRAMES` to `32`, which halves the per-chunk decode
+   activations for a little more overlap recompute.
+4. Drop `MAX_SEQ_LEN` to `1536` (safe with a 10 s reference).
+5. Reduce `--max-new-tokens` in the request, which lowers the KV high-water
    mark.
 
 ## Verifying a change yourself
@@ -289,3 +300,8 @@ It reports peak reserved VRAM and a least-squares fit of wall time against
 audio duration, separating fixed overhead from marginal RTF. Note that the CUDA
 context lives outside the allocator cap, which is why `--context-mib` (default
 400) is subtracted from the budget before computing the fraction.
+
+For codec changes there is also `tools/verify_codec_decode.py`, which compares
+chunked against single-pass decode (and folded against unfolded weights) on
+real reference tokens. Use `--sections float64` for exactness — fp32 has a
+~4e-6 rounding floor of its own that has nothing to do with chunking.
