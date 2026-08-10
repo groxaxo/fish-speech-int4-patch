@@ -12,6 +12,9 @@ services:
     volumes:
       - ./checkpoints:/app/checkpoints
       - ./references:/app/references
+      # rtf.log and friends land here; without the mount they sit on the
+      # container's ephemeral layer and vanish on `down`.
+      - ./logs:/app/logs
     environment:
       COMPILE: ${COMPILE:-0}
     # GPU (remove this block if CPU-only):
