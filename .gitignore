@@ -116,3 +116,7 @@ ffprobe.exe
 # ----------
 /*.test.sh
 asr-label*
+
+# Local Working Notes
+# -------------------
+/notes/
