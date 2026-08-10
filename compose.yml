@@ -30,15 +30,14 @@ services:
     ports:
       - "${API_PORT:-8880}:8880"
 
-  # Same server, tuned for a 4 GB card (RTX 3050 Laptop). Measured at 3534 MiB
-  # peak with marginal RTF 0.531 on a 4096 MiB budget.
+  # Same server, tuned for a 4 GB card (RTX 3050 Laptop). Measured at 3294 MiB
+  # peak on the standard suite and 3462 MiB on a 44 s utterance, both on a
+  # 4096 MiB budget, sub-realtime throughout.
   #
   # Reference tokens must exist before starting, because the codec is loaded
   # without its encoder:
   #   docker compose run --rm --entrypoint uv server-4gb \
   #     run --no-sync python tools/precompute_references.py
-  #
-  # Utterances beyond ~10-13 s still exceed this budget during codec decode.
   server-4gb:
     extends:
       file: compose.base.yml
@@ -58,6 +57,11 @@ services:
       # Lower max_new_tokens per request instead - the budget is
       # max_seq_len - max_new_tokens.
       MAX_SEQ_LEN: ${MAX_SEQ_LEN:-2048}
+      # Decode the codec conv stack in 64-frame (~3 s) chunks so activations
+      # stop scaling with utterance length. Bit-exact beyond the conv
+      # receptive field (overlap 32 vs measured minimum 10); costs ~15% wall
+      # on long utterances, buys ~250 MiB of peak headroom.
+      FISH_DECODE_CHUNK_FRAMES: ${FISH_DECODE_CHUNK_FRAMES:-64}
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     profiles: ["server-4gb"]
     ports:
@@ -80,6 +84,7 @@ services:
       FISH_OFFLOAD_EMBEDDINGS: "1"
       CODEC_DECODE_ONLY: "1"
       MAX_SEQ_LEN: ${MAX_SEQ_LEN:-2048}
+      FISH_DECODE_CHUNK_FRAMES: ${FISH_DECODE_CHUNK_FRAMES:-64}
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     profiles: ["webui-4gb"]
     ports:
