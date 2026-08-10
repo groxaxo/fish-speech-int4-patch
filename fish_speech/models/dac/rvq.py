@@ -349,7 +349,19 @@ class DownsampleResidualVectorQuantize(nn.Module):
     #     indices = rearrange(indices, "g b l r -> b (g r) l")
     #     return indices
     #
-    def decode(self, indices: torch.Tensor):
+    def decode_codes(self, indices: torch.Tensor):
+        """Codebook lookup + post_module, stopping before `upsample`.
+
+        This is the half of decoding that must see the whole sequence at once:
+        post_module is 8 stacked window-128 attention layers, so its receptive
+        field spans roughly a thousand frames. It is also the cheap half - it
+        runs at the token rate (21.53 Hz), where activations are a couple of MB
+        even for a minute of audio.
+
+        Everything below it (`upsample` and the DAC decoder) is causal
+        convolution with a receptive field of ~11 frames, which is what lets
+        `DAC.from_indices` run that part in chunks; see `_decode_chunked`.
+        """
         # indices = rearrange(indices, "b (g r) l -> g b l r", g=self.residual_fsq.groups)
         indices[:, 0] = torch.clamp(
             indices[:, 0], max=self.semantic_quantizer.codebook_size - 1
@@ -361,9 +373,10 @@ class DownsampleResidualVectorQuantize(nn.Module):
         z_q_semantic = self.semantic_quantizer.from_codes(indices[:, :1])[0]
         z_q_residual = self.quantizer.from_codes(indices[:, 1:])[0]
         z_q = z_q_semantic + z_q_residual
-        z_q = self.post_module(z_q)
-        z_q = self.upsample(z_q)
-        return z_q
+        return self.post_module(z_q)
+
+    def decode(self, indices: torch.Tensor):
+        return self.upsample(self.decode_codes(indices))
 
     # def from_latents(self, latents: torch.Tensor):
     #     z_q, z_p, codes = super().from_latents(latents)
