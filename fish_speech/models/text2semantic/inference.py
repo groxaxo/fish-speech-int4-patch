@@ -93,6 +93,18 @@ def sample(
     return idx_next, probs
 
 
+# Distillation capture: when a list is installed here, decode_one_token_ar
+# appends (slow_hidden, codebook_indices) per generated frame - the exact
+# tensors the sampler consumed. Only valid in eager mode: a compiled
+# decode_one_token specializes on this being None at trace time.
+_distill_capture_sink: Optional[list] = None
+
+
+def set_distill_capture_sink(sink: Optional[list]) -> None:
+    global _distill_capture_sink
+    _distill_capture_sink = sink
+
+
 def decode_one_token_ar(
     model: DualARTransformer,
     x: torch.Tensor,
@@ -181,6 +193,14 @@ def decode_one_token_ar(
         codebooks.append(a)
 
     codebooks = torch.stack(codebooks, dim=1)
+
+    if _distill_capture_sink is not None:
+        _distill_capture_sink.append(
+            (
+                forward_result.hidden_states.detach().reshape(-1).half().cpu(),
+                codebooks.detach().reshape(-1).to(torch.int16).cpu(),
+            )
+        )
 
     # Only delete references, let Python GC handle cleanup
     del logits, hidden_states, forward_result
