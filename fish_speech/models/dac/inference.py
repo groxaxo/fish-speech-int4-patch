@@ -11,6 +11,8 @@ from hydra import compose, initialize
 from hydra.utils import instantiate
 from loguru import logger
 from omegaconf import OmegaConf
+from torch.nn.utils import remove_weight_norm
+from torch.nn.utils.parametrize import is_parametrized, remove_parametrizations
 
 pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -20,12 +22,33 @@ from fish_speech.utils.file import AUDIO_EXTENSIONS
 OmegaConf.register_new_resolver("eval", eval)
 
 
+def _fold_weight_norms(model: torch.nn.Module) -> int:
+    """Bake weight-norm reparametrizations into plain weights.
+
+    weight_norm keeps (g, v) and recomputes w = g * v / ||v|| on every forward,
+    materialising a full-size weight temporary each call - training machinery
+    with no inference value. Folding runs that same computation once on the
+    same values, so the result is bitwise identical. Handles both the legacy
+    hook API (dac's WNConv1d) and the parametrization API (CausalConvNet).
+    """
+    folded = 0
+    for module in model.modules():
+        if is_parametrized(module, "weight"):
+            remove_parametrizations(module, "weight", leave_parametrized=True)
+            folded += 1
+        elif hasattr(module, "weight_g") and hasattr(module, "weight_v"):
+            remove_weight_norm(module)
+            folded += 1
+    return folded
+
+
 def load_model(
     config_name,
     checkpoint_path,
     device="cuda",
     decode_only: bool = False,
     precision: torch.dtype | None = None,
+    fold_weight_norm: bool = True,
 ):
     """Load the DAC codec.
 
@@ -76,6 +99,11 @@ def load_model(
         model.decode_only = True
 
     model.eval()
+
+    if fold_weight_norm:
+        # Before the precision cast, so w = g * v / ||v|| is computed in fp32.
+        folded = _fold_weight_norms(model)
+        logger.info(f"Folded weight norm on {folded} modules")
 
     if precision is not None:
         if not decode_only:
