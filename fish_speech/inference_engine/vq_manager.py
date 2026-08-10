@@ -1,3 +1,4 @@
+import os
 from typing import Callable
 
 import torch
@@ -17,7 +18,17 @@ class VQManager:
         logger.info(f"VQ features: {codes.shape}")
 
         if isinstance(self.decoder_model, DAC):
-            return self.decoder_model.from_indices(codes[None])[0].squeeze()
+            # Codec decode is the peak-memory step of a request: activations
+            # scale with utterance length times 2048 samples per token frame.
+            # Chunking bounds them at a bit-exact cost (see DAC.from_indices).
+            # Off by default so existing deployments are untouched.
+            chunk_frames = int(os.getenv("FISH_DECODE_CHUNK_FRAMES", "0"))
+            overlap_frames = int(os.getenv("FISH_DECODE_OVERLAP_FRAMES", "32"))
+            return self.decoder_model.from_indices(
+                codes[None],
+                chunk_frames=chunk_frames,
+                overlap_frames=overlap_frames,
+            )[0].squeeze()
 
         raise ValueError(f"Unknown model type: {type(self.decoder_model)}")
 
