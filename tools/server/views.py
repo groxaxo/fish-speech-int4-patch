@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import time
+from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 
@@ -56,6 +57,18 @@ from tools.server.model_utils import (
     cached_vqgan_batch_encode,
 )
 routes = Routes()
+
+RTF_LOG_PATH = Path("logs/rtf.log")
+
+
+def _log_rtf(endpoint: str, elapsed: float, audio_duration: float) -> None:
+    rtf = elapsed / audio_duration if audio_duration > 0 else float("inf")
+    RTF_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(RTF_LOG_PATH, "a") as f:
+        f.write(
+            f"{datetime.now().isoformat()} endpoint={endpoint} "
+            f"elapsed={elapsed:.3f}s audio_duration={audio_duration:.3f}s rtf={rtf:.3f}\n"
+        )
 
 
 def _mark_request_activity():
@@ -213,7 +226,11 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
                 content_type=get_content_type(req.format),
             )
 
+        gen_start = time.time()
         fake_audios = next(inference(req, engine))
+        _log_rtf(
+            "/v1/tts", time.time() - gen_start, len(fake_audios) / sample_rate
+        )
         audio_bytes = serialize_audio_output(fake_audios, sample_rate, req.format)
         return StreamResponse(
             iterable=_tracked_stream(buffer_to_async_generator(audio_bytes)),
@@ -292,7 +309,11 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
                 content_type=get_content_type(tts_req.format),
             )
 
+        gen_start = time.time()
         fake_audios = next(inference(tts_req, engine))
+        _log_rtf(
+            "/v1/audio/speech", time.time() - gen_start, len(fake_audios) / sample_rate
+        )
         audio_bytes = serialize_audio_output(fake_audios, sample_rate, tts_req.format)
 
         if req.stream:
