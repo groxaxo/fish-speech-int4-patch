@@ -359,7 +359,7 @@ class DownsampleResidualVectorQuantize(nn.Module):
         even for a minute of audio.
 
         Everything below it (`upsample` and the DAC decoder) is causal
-        convolution with a receptive field of ~11 frames, which is what lets
+        convolution with a receptive field of 10 frames, which is what lets
         `DAC.from_indices` run that part in chunks; see `_decode_chunked`.
         """
         # indices = rearrange(indices, "b (g r) l -> g b l r", g=self.residual_fsq.groups)

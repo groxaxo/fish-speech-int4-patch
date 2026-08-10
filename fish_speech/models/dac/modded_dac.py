@@ -932,9 +932,70 @@ class DAC(BaseModel, CodecMixin):
         indices_lens = torch.ceil(audio_lengths / self.frame_length).long()
         return indices, indices_lens
 
-    def from_indices(self, indices: torch.Tensor):
-        z = self.quantizer.decode(indices)
-        return self.decoder(z)
+    def from_indices(
+        self,
+        indices: torch.Tensor,
+        chunk_frames: int = 0,
+        overlap_frames: int = 32,
+    ):
+        """Decode VQ indices to audio.
+
+        chunk_frames > 0 bounds activation memory by running the convolutional
+        part of decoding (`quantizer.upsample` + `self.decoder`) over slices of
+        at most `chunk_frames` token frames instead of the whole sequence. That
+        part is where activations explode: a token frame becomes 2048 audio
+        samples, and the widest intermediate tensor is 768 channels at a
+        quarter of the sample rate.
+
+        The result reproduces a single pass. Every layer below post_module is a
+        causal convolution, so an output sample depends only on inputs at or
+        before it, and never more than 10 frames back - measured, not assumed;
+        see tools/verify_codec_decode.py. Feeding a chunk `overlap_frames`
+        frames of real left context and discarding the audio for those frames
+        therefore reproduces what a full pass would have produced: the zero
+        left-padding the chunk's first layers see has been pushed out of every
+        kept sample's receptive field. In float64 the residual difference is
+        1.6e-15, the rounding floor.
+
+        post_module is deliberately *not* chunked: its stacked window-128
+        attention layers reach back about a thousand frames, and windowing it
+        costs real quality (a previous attempt measured 12.2 dB SNR). It is
+        also cheap, so there is nothing to gain.
+        """
+        z_post = self.quantizer.decode_codes(indices)
+
+        if chunk_frames <= 0 or z_post.shape[-1] <= chunk_frames:
+            return self.decoder(self.quantizer.upsample(z_post))
+
+        return self._decode_chunked(z_post, chunk_frames, overlap_frames)
+
+    def _decode_chunked(
+        self, z_post: torch.Tensor, chunk_frames: int, overlap_frames: int
+    ):
+        if overlap_frames < 0:
+            raise ValueError(f"overlap_frames must be >= 0, got {overlap_frames}")
+
+        # Samples of audio produced per post_module frame: 4 from
+        # quantizer.upsample, 512 from the decoder's transposed convolutions.
+        ratio = int(np.prod(self.quantizer.downsample_factor)) * int(
+            np.prod(self.decoder_rates)
+        )
+        total_frames = z_post.shape[-1]
+
+        chunks = []
+        for start in range(0, total_frames, chunk_frames):
+            context = min(overlap_frames, start)
+            piece = z_post[..., start - context : start + chunk_frames]
+            audio = self.decoder(self.quantizer.upsample(piece))
+            # Drop the context's audio; it was only there to prime the convs.
+            chunks.append(audio[..., context * ratio :])
+
+        audio = torch.cat(chunks, dim=-1)
+        assert audio.shape[-1] == total_frames * ratio, (
+            f"chunked decode produced {audio.shape[-1]} samples, "
+            f"expected {total_frames * ratio}"
+        )
+        return audio
 
     def decode(self, z: torch.Tensor):
         """Decode given latent codes and return audio data
