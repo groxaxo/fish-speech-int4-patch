@@ -98,6 +98,26 @@ async def _tracked_stream(iterable):
         _end_request_work()
 
 
+async def _tracked_stream_with_rtf(iterable, endpoint: str, sample_rate: int):
+    """Like _tracked_stream, but also logs RTF once the stream finishes.
+
+    Streaming responses are int16 mono PCM chunks, so audio duration is
+    derived from total bytes yielded rather than a known-upfront duration.
+    """
+    start = time.time()
+    total_bytes = 0
+    try:
+        async for chunk in iterable:
+            _mark_request_activity()
+            if isinstance(chunk, bytes):
+                total_bytes += len(chunk)
+            yield chunk
+    finally:
+        audio_duration = total_bytes / (2 * sample_rate) if sample_rate else 0
+        _log_rtf(endpoint, time.time() - start, audio_duration)
+        _end_request_work()
+
+
 def _get_tts_context():
     app_state = request.app.state
     model_manager: ModelManager = app_state.model_manager
@@ -219,7 +239,9 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
 
         if req.streaming:
             return StreamResponse(
-                iterable=_tracked_stream(inference_async(req, engine)),
+                iterable=_tracked_stream_with_rtf(
+                    inference_async(req, engine), "/v1/tts", sample_rate
+                ),
                 headers=_audio_headers(
                     req.format, chunked=True, language=req.language, seed=req.seed
                 ),
@@ -299,7 +321,11 @@ async def openai_speech(req: Annotated[OpenAISpeechRequest, Body(exclusive=True)
 
         if req.stream and tts_req.streaming:
             return StreamResponse(
-                iterable=_tracked_stream(inference_async(tts_req, engine)),
+                iterable=_tracked_stream_with_rtf(
+                    inference_async(tts_req, engine),
+                    "/v1/audio/speech",
+                    sample_rate,
+                ),
                 headers=_audio_headers(
                     tts_req.format,
                     chunked=True,
