@@ -1653,8 +1653,11 @@ def seed_for(utt_id: str) -> int:
     return int(digest[:8], 16) % (2**31 - 1)
 
 
-def build(count: int, rng_seed: int) -> list[dict]:
+def build(
+    count: int, rng_seed: int, reference_cycle: list[str] | None = None
+) -> list[dict]:
     rng = random.Random(rng_seed)
+    reference_cycle = reference_cycle or REFERENCE_CYCLE
 
     # Exact quotas rather than per-draw probabilities: 2500 samples is small
     # enough that sampling drift would show up in the per-language totals.
@@ -1692,7 +1695,7 @@ def build(count: int, rng_seed: int) -> list[dict]:
                 "utt_id": utt_id,
                 "text": text,
                 "lang": lang,
-                "reference_id": REFERENCE_CYCLE[index % len(REFERENCE_CYCLE)],
+                "reference_id": reference_cycle[index % len(reference_cycle)],
                 "temperature": temperatures[index],
                 "seed": seed_for(utt_id),
                 "length_class": length_class,
@@ -1757,8 +1760,18 @@ def report(records: list[dict]) -> None:
 @click.option("--count", type=int, default=DEFAULT_COUNT)
 @click.option("--seed", type=int, default=DEFAULT_SEED)
 @click.option("--samples", type=int, default=0, help="print N example utterances")
-def main(out: Path, count: int, seed: int, samples: int) -> None:
-    records = build(count, seed)
+@click.option(
+    "--references",
+    type=str,
+    default="",
+    help="Comma-separated reference ids to rotate through, e.g. "
+    "'beatrice10,default,aqua,rem'. Repeat an id to weight it. Empty keeps the "
+    "built-in 2:1:1 beatrice-weighted cycle. Use an even rotation over every "
+    "voice you have when the goal is a speaker-general student.",
+)
+def main(out: Path, count: int, seed: int, samples: int, references: str) -> None:
+    cycle = [r.strip() for r in references.split(",") if r.strip()] or None
+    records = build(count, seed, cycle)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8", newline="\n") as handle:
