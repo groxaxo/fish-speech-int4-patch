@@ -67,6 +67,28 @@ To create a voice rather than copy one, see [Adding voices](#adding-voices).
 
 ## Run
 
+### Precompute reference tokens
+
+Run this before the first start, and again whenever you add a voice. The 4 GB
+profiles load the codec without its encoder, so they cannot turn reference
+audio into VQ codes at request time — the tokens have to exist on disk.
+
+```bash
+# every voice that is missing tokens
+docker compose run --rm --entrypoint uv server-4gb \
+  run --no-sync python tools/precompute_references.py
+
+# or a single voice
+docker compose run --rm --entrypoint uv server-4gb \
+  run --no-sync python tools/precompute_references.py --reference-id <id>
+```
+
+This is a one-off command, not a server: it loads the *full* codec itself
+regardless of the profile's decode-only setting, so `server` and `server-4gb`
+behave identically here. Stop the running server first — at this budget the
+precompute needs the GPU to itself. See [Adding voices](#adding-voices) for
+the per-clip memory numbers.
+
 ### API server
 
 ```bash
