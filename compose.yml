@@ -62,6 +62,11 @@ services:
       # receptive field (overlap 32 vs measured minimum 10); costs ~15% wall
       # on long utterances, buys ~250 MiB of peak headroom.
       FISH_DECODE_CHUNK_FRAMES: ${FISH_DECODE_CHUNK_FRAMES:-64}
+      # Path to a distilled depth transformer, e.g.
+      # checkpoints/fast-student-d1024.pt. Empty (the default) serves the
+      # teacher's own fast stack. Set it in .env - pointing at a file that is
+      # not there fails the load, so this cannot default to a path.
+      FISH_FAST_STUDENT: ${FISH_FAST_STUDENT:-}
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     profiles: ["server-4gb"]
     ports:
@@ -85,6 +90,7 @@ services:
       CODEC_DECODE_ONLY: "1"
       MAX_SEQ_LEN: ${MAX_SEQ_LEN:-2048}
       FISH_DECODE_CHUNK_FRAMES: ${FISH_DECODE_CHUNK_FRAMES:-64}
+      FISH_FAST_STUDENT: ${FISH_FAST_STUDENT:-}
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     profiles: ["webui-4gb"]
     ports:

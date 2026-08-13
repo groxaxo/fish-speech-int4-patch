@@ -171,13 +171,6 @@ huggingface-cli download scarxity/fish-speech-s2-pro-nf4 --local-dir checkpoints
 Use the **NF4** checkpoint. The unquantized release is 8.5 GB of bf16 that would have
 to be quantized at load — more host RAM, slower startup, no benefit.
 
-> [!IMPORTANT]
-> Edit `checkpoints/s2-pro-nf4/tokenizer_config.json` and change
-> `"tokenizer_class": "TokenizersBackend"` to `"PreTrainedTokenizerFast"`.
-> `TokenizersBackend` is a transformers v5 name this loader does not recognise;
-> without the edit the server dies with `UnboundLocalError: tokenizer`.
-> `checkpoints/` is untracked, so re-downloading reverts this.
-
 ### 2. Precompute reference tokens
 
 Do this **before the first start** — the 4 GB profiles load the codec without its
@@ -242,6 +235,7 @@ Set in `compose.yml` per profile, or overridden in a `.env` file.
 | `FISH_OFFLOAD_EMBEDDINGS` | `1` | Keep the embedding table in host memory |
 | `CODEC_DECODE_ONLY` | `1` | Drop the codec encoder, cast decode to fp16 |
 | `FISH_DECODE_CHUNK_FRAMES` | `64` | Codec chunk size in frames; `0` disables |
+| `FISH_FAST_STUDENT` | unset | Path to a distilled depth transformer (~14% faster; see the [4 GB guide](docs/en/4gb-laptop.md)) |
 | `COMPILE` | `1` | `torch.compile` the decode step |
 | `ENABLE_LAZY_LOAD` | `0` | Load at startup rather than on first request |
 | `API_PORT` / `GRADIO_PORT` | `8880` / `7860` | Published host ports |

@@ -32,21 +32,6 @@ git checkout perf/tier0-latency-vram
 huggingface-cli download scarxity/fish-speech-s2-pro-nf4 --local-dir checkpoints/s2-pro-nf4
 ```
 
-### Required checkpoint edit
-
-Edit `checkpoints/s2-pro-nf4/tokenizer_config.json`:
-
-```json
-"tokenizer_class": "TokenizersBackend"   →   "PreTrainedTokenizerFast"
-```
-
-`TokenizersBackend` is a transformers v5 name that this fork's loader does not
-recognise. Without the edit the server dies with `UnboundLocalError: tokenizer`
-in `llama.py`.
-
-`checkpoints/` is not tracked by git, so **re-downloading the checkpoint reverts
-this every time**.
-
 ### Voices
 
 Copy your `references/` directory across, including any `*.tokens.pt` files.
@@ -283,8 +268,65 @@ so cloned voices are bit-identical to the stock server.
 | `FISH_FULL_LM_HEAD` | unset | Set to `1` to restore the full projection (incompatible with the offload) |
 | `FISH_DECODE_CHUNK_FRAMES` | `64` | Codec conv-stack chunk size in 21.5 Hz frames; `0` disables chunking |
 | `FISH_DECODE_OVERLAP_FRAMES` | unset (code default 32) | Left context per chunk; exactness needs ≥ 10 |
+| `FISH_FAST_STUDENT` | unset | Path to a distilled depth transformer; see below |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | Reduces allocator fragmentation |
 | `API_PORT` / `GRADIO_PORT` | `8880` / `7860` | Published host ports |
+
+## Going faster: the distilled depth transformer
+
+On a card slower than the one these numbers came from, the bottleneck stops
+being memory and becomes bandwidth. An RTX 3050 Laptop measured marginal RTF
+**1.10** running this exact code, against **0.57** on a 4060 Ti — the ratio
+tracks the cards' memory bandwidth (192 vs 288 GB/s), so it is hardware, not
+configuration. Only a smaller model moves it.
+
+The depth transformer is the place to cut. It is 4 layers at dim 2560 (~400M
+params) and runs **nine times per frame**, which makes it roughly half of all
+per-frame memory traffic — to predict residual codebooks carrying timbre and
+texture, not words. A student distilled from it at dim 1024 (59.3M params) does
+the same job for a fraction of the traffic:
+
+| | teacher | student |
+|---|---|---|
+| Marginal RTF | 0.622 | **0.532** |
+| Fixed overhead | 0.53 s | **0.38 s** |
+| Peak reserved | 3294 MiB | **3190 MiB** |
+
+Point `FISH_FAST_STUDENT` at the checkpoint to enable it:
+
+```bash
+# .env, or the environment
+FISH_FAST_STUDENT=checkpoints/fast-student-d1024.pt
+```
+
+Unset, the teacher's own stack serves exactly as before — the swap is opt-in and
+reverts by clearing the variable. The file must exist if the variable is set;
+there is no silent fallback.
+
+Because the student replaces only the depth transformer, it cannot affect words,
+pronunciation, languages, or the inline emotion tags. Those come from the slow
+backbone, which is untouched.
+
+### Training one
+
+`tools/distill/` holds the pipeline: `build_corpus.py` writes a corpus,
+`capture_teacher.py` records what the teacher's depth transformer does on it
+(hidden state in, codebook indices out), `train_student.py` fits a student to
+those, and `ab_student.py` renders teacher-vs-student pairs to listen to.
+
+Two things that are easy to get wrong:
+
+- **Capture must run eager.** The capture hook lives inside the compiled
+  `decode_one_token_ar`, and `torch.compile` bakes "no capture" in at trace
+  time. That costs ~9 tokens/s against ~33 compiled. The same mechanism means
+  `ab_student.py` also generates eager, so it must not be used for timing —
+  `vram_harness.py` with and without the variable is the speed measurement.
+- **Watch validation KL, not agreement.** In the reference run, KL bottomed at
+  step 2499 and rose for the next ten evals while top-1 agreement kept climbing
+  — the student sharpening toward the teacher's argmax while drifting from the
+  distribution that sampling actually draws from. The trainer checkpoints on
+  KL, so `best_student.pt` is the one to ship; ~2500 steps was the useful
+  length.
 
 ## If it still runs out of memory
 
