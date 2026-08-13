@@ -19,8 +19,8 @@
     <a target="_blank" href="https://github.com/scarxity/fish-speech-int4-patch/stargazers">
         <img alt="GitHub stars" src="https://img.shields.io/github/stars/scarxity/fish-speech-int4-patch?style=for-the-badge&label=Star%20the%20Fork"/>
     </a>
-    <a target="_blank" href="https://huggingface.co/scarxity/s2-pro-BnB-4Bits">
-        <img alt="Hugging Face model" src="https://img.shields.io/badge/HuggingFace-scarxity%2Fs2--pro--BnB--4Bits-f59e0b?style=for-the-badge"/>
+    <a target="_blank" href="https://huggingface.co/scarxity/fish-speech-s2-pro-nf4">
+        <img alt="Hugging Face model" src="https://img.shields.io/badge/HuggingFace-scarxity%2Ffish--speech--s2--pro--nf4-f59e0b?style=for-the-badge"/>
     </a>
     <a target="_blank" href="https://github.com/fishaudio/fish-speech">
         <img alt="Upstream project" src="https://img.shields.io/badge/Upstream-fishaudio%2Ffish--speech-1f7a8c?style=for-the-badge"/>
@@ -50,8 +50,8 @@
 </div>
 
 <div align="center">
-    <a target="_blank" href="https://huggingface.co/scarxity/s2-pro-BnB-4Bits">
-        <img alt="HuggingFace Model" src="https://img.shields.io/badge/🤗%20NF4%20Model-scarxity%2Fs2--pro--BnB--4Bits-orange"/>
+    <a target="_blank" href="https://huggingface.co/scarxity/fish-speech-s2-pro-nf4">
+        <img alt="HuggingFace Model" src="https://img.shields.io/badge/🤗%20NF4%20Model-scarxity%2Ffish--speech--s2--pro--nf4-orange"/>
     </a>
     <a target="_blank" href="https://github.com/scarxity/fish-speech-int4-patch/releases">
         <img alt="GitHub Releases" src="https://img.shields.io/badge/Releases-GitHub-1f7a8c?style=flat-square&logo=github&logoColor=white"/>
@@ -165,7 +165,7 @@ git clone https://github.com/scarxity/fish-speech-int4-patch
 cd fish-speech-int4-patch
 
 # ~4.9 GB
-huggingface-cli download scarxity/s2-pro-BnB-4Bits --local-dir checkpoints/s2-pro
+huggingface-cli download scarxity/fish-speech-s2-pro-nf4 --local-dir checkpoints/s2-pro
 ```
 
 Use the **NF4** checkpoint. The unquantized release is 8.5 GB of bf16 that would have
@@ -286,7 +286,7 @@ so `server` and `server-4gb` behave identically here.
 
 ### Published model
 
-- Hugging Face model: [`scarxity/s2-pro-BnB-4Bits`](https://huggingface.co/scarxity/s2-pro-BnB-4Bits)
+- Hugging Face model: [`scarxity/fish-speech-s2-pro-nf4`](https://huggingface.co/scarxity/fish-speech-s2-pro-nf4)
 - Export helper: `python tools/llama/export_nf4.py --checkpoint-path checkpoints/s2-pro --output-path /tmp/s2-pro-nf4`
 
 > [!NOTE]
@@ -310,7 +310,7 @@ so `server` and `server-4gb` behave identically here.
 ### For LLM agents
 
 ```text
-Clone the repo, download scarxity/s2-pro-BnB-4Bits into checkpoints/s2-pro, and patch
+Clone the repo, download scarxity/fish-speech-s2-pro-nf4 into checkpoints/s2-pro, and patch
 tokenizer_config.json ("TokenizersBackend" -> "PreTrainedTokenizerFast"). Precompute
 reference tokens, then start a Compose profile: server-4gb (4 GB cards) or server
 (12 GB+), both on port 8880; webui-4gb / webui on 7860. Run one profile at a time.
@@ -343,7 +343,7 @@ Visit the [Fish Audio website](https://fish.audio/) for live playground. Read th
 
 | Model | Size | Availability | Description |
 |------|------|-------------|-------------|
-| S2-Pro | 4B parameters | [HuggingFace](https://huggingface.co/scarxity/s2-pro-BnB-4Bits) | NF4 build of the flagship model |
+| S2-Pro | 4B parameters | [HuggingFace](https://huggingface.co/scarxity/fish-speech-s2-pro-nf4) | NF4 build of the flagship model |
 
 More details of the model can be found in the [technical report](https://arxiv.org/abs/2411.01156).
 

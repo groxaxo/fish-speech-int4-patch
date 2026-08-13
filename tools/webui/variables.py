@@ -10,7 +10,7 @@ HEADER_MD = """
   </p>
   <div class="fs-links">
     <a href="https://github.com/scarxity/fish-speech-int4-patch" target="_blank">GitHub</a>
-    <a href="https://huggingface.co/scarxity/s2-pro-BnB-4Bits" target="_blank">S2-Pro checkpoint</a>
+    <a href="https://huggingface.co/scarxity/fish-speech-s2-pro-nf4" target="_blank">S2-Pro checkpoint</a>
     <a href="https://fish.audio/blog/fish-audio-open-sources-s2/" target="_blank">Tech blog</a>
   </div>
 </div>
