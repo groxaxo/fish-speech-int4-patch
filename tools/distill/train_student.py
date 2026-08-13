@@ -163,7 +163,7 @@ def _default_dtype(dtype: torch.dtype):
 def _dequantize_fast_tensors(state_dict, device: torch.device):
     """Pull the ``fast_*`` weights out of the NF4 checkpoint as plain tensors.
 
-    The groxaxo release stores every large linear as a bitsandbytes NF4 blob (a
+    The NF4 release stores every large linear as a bitsandbytes NF4 blob (a
     flat uint8 tensor plus ``<name>.absmax`` / ``.quant_map`` / ``.nested_*`` /
     ``.quant_state.bitsandbytes__nf4`` companions) while the small tensors -
     embeddings and RMSNorm gains - stay plain fp16. Both cases appear here.

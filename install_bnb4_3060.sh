@@ -5,7 +5,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_NAME="${ENV_NAME:-fish-speech-bnb4}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
 CUDA_WHL_INDEX="${CUDA_WHL_INDEX:-https://download.pytorch.org/whl/cu128}"
-HF_REPO="${HF_REPO:-groxaxo/s2-pro}"
+HF_REPO="${HF_REPO:-scarxity/s2-pro-BnB-4Bits}"
 
 is_complete_checkpoint_dir() {
     local dir="$1"

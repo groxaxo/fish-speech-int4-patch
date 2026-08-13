@@ -70,8 +70,9 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
         with gr.Row(equal_height=True):
             with gr.Column(elem_classes=["fs-card"]):
                 gr.Markdown(
-                    "### 12 GB friendly\n"
-                    "BnB NF4 is the default path, so S2-Pro is practical on RTX 3060-class GPUs."
+                    "### 4 GB friendly\n"
+                    "BnB NF4 plus decode-only codec and offloaded embeddings put S2-Pro "
+                    "on RTX 3050-class laptop GPUs."
                 )
             with gr.Column(elem_classes=["fs-card"]):
                 gr.Markdown(

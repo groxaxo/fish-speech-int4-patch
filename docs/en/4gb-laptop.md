@@ -14,7 +14,7 @@ memory inside `.to(device)` at 3.54 GiB.
 
 ## Which checkpoint
 
-Use the **NF4 quantized** checkpoint, `groxaxo/s2-pro-BnB-4Bits`.
+Use the **NF4 quantized** checkpoint, `scarxity/s2-pro-BnB-4Bits`.
 
 Do *not* use the unquantized `s2-pro` release. It is 8.5 GB of bf16
 safetensors that would have to be quantized at load: more host RAM, slower
@@ -29,7 +29,7 @@ cd fish-speech-int4-patch
 git checkout perf/tier0-latency-vram
 
 # ~4.9 GB
-huggingface-cli download groxaxo/s2-pro-BnB-4Bits --local-dir checkpoints/s2-pro
+huggingface-cli download scarxity/s2-pro-BnB-4Bits --local-dir checkpoints/s2-pro
 ```
 
 ### Required checkpoint edit

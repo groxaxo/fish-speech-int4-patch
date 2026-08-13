@@ -3,14 +3,14 @@ from fish_speech.i18n import i18n
 HEADER_MD = """
 <div class="fs-hero">
   <div class="fs-pill">Fish Speech S2-Pro - BnB NF4 - OpenAI-Compatible</div>
-  <h1>Fish Speech S2-Pro, tuned for 12 GB GPUs</h1>
+  <h1>Fish Speech S2-Pro, tuned for 4 GB GPUs</h1>
   <p>
-    A polished voice studio for Groxaxo's Fish Speech fork: OpenAI-style TTS,
+    A polished voice studio for the Scarxity Fish Speech fork: OpenAI-style TTS,
     reference-audio cloning, and default BnB4 startup for practical single-GPU deployment.
   </p>
   <div class="fs-links">
-    <a href="https://github.com/groxaxo/fish-speech-int4-patch" target="_blank">GitHub</a>
-    <a href="https://huggingface.co/groxaxo/s2-pro" target="_blank">S2-Pro checkpoint</a>
+    <a href="https://github.com/scarxity/fish-speech-int4-patch" target="_blank">GitHub</a>
+    <a href="https://huggingface.co/scarxity/s2-pro-BnB-4Bits" target="_blank">S2-Pro checkpoint</a>
     <a href="https://fish.audio/blog/fish-audio-open-sources-s2/" target="_blank">Tech blog</a>
   </div>
 </div>

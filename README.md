@@ -4,7 +4,8 @@
 **English** | [简体中文](docs/README.zh.md) | [Portuguese](docs/README.pt-BR.md) | [日本語](docs/README.ja.md) | [한국어](docs/README.ko.md) | [العربية](docs/README.ar.md) <br>
 
 > **This is a community fork** of [fishaudio/fish-speech](https://github.com/fishaudio/fish-speech) that adds **bitsandbytes NF4 4-bit quantization** and a set of waste-removal optimisations, enabling inference on GPUs with as little as **4 GB** of VRAM.  
-> Huge thanks to the amazing team at [Fish Audio](https://fish.audio/) for building and open-sourcing the original Fish Speech model — all credit for the core research and architecture belongs to them.
+> Huge thanks to the amazing team at [Fish Audio](https://fish.audio/) for building and open-sourcing the original Fish Speech model — all credit for the core research and architecture belongs to them.  
+> Built on top of [groxaxo/fish-speech-int4-patch](https://github.com/groxaxo/fish-speech-int4-patch), which introduced the bitsandbytes NF4 quantization path this fork extends down to 4 GB.
 
 <a href="https://www.producthunt.com/products/fish-speech?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-fish&#0045;audio&#0045;s1" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1023740&theme=light&period=daily&t=1761164814710" alt="Fish&#0032;Audio&#0032;S1 - Expressive&#0032;Voice&#0032;Cloning&#0032;and&#0032;Text&#0045;to&#0045;Speech | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 <a href="https://trendshift.io/repositories/7014" target="_blank">
@@ -15,11 +16,11 @@
 <br>
 
 <div align="center">
-    <a target="_blank" href="https://github.com/groxaxo/fish-speech-int4-patch/stargazers">
-        <img alt="GitHub stars" src="https://img.shields.io/github/stars/groxaxo/fish-speech-int4-patch?style=for-the-badge&label=Star%20the%20Fork"/>
+    <a target="_blank" href="https://github.com/scarxity/fish-speech-int4-patch/stargazers">
+        <img alt="GitHub stars" src="https://img.shields.io/github/stars/scarxity/fish-speech-int4-patch?style=for-the-badge&label=Star%20the%20Fork"/>
     </a>
-    <a target="_blank" href="https://huggingface.co/groxaxo/s2-pro">
-        <img alt="Hugging Face model" src="https://img.shields.io/badge/HuggingFace-groxaxo%2Fs2--pro-f59e0b?style=for-the-badge"/>
+    <a target="_blank" href="https://huggingface.co/scarxity/s2-pro-BnB-4Bits">
+        <img alt="Hugging Face model" src="https://img.shields.io/badge/HuggingFace-scarxity%2Fs2--pro--BnB--4Bits-f59e0b?style=for-the-badge"/>
     </a>
     <a target="_blank" href="https://github.com/fishaudio/fish-speech">
         <img alt="Upstream project" src="https://img.shields.io/badge/Upstream-fishaudio%2Ffish--speech-1f7a8c?style=for-the-badge"/>
@@ -49,10 +50,10 @@
 </div>
 
 <div align="center">
-    <a target="_blank" href="https://huggingface.co/groxaxo/s2-pro">
-        <img alt="HuggingFace Model" src="https://img.shields.io/badge/🤗%20NF4%20Model-groxaxo%2Fs2--pro-orange"/>
+    <a target="_blank" href="https://huggingface.co/scarxity/s2-pro-BnB-4Bits">
+        <img alt="HuggingFace Model" src="https://img.shields.io/badge/🤗%20NF4%20Model-scarxity%2Fs2--pro--BnB--4Bits-orange"/>
     </a>
-    <a target="_blank" href="https://github.com/groxaxo/fish-speech-int4-patch/releases">
+    <a target="_blank" href="https://github.com/scarxity/fish-speech-int4-patch/releases">
         <img alt="GitHub Releases" src="https://img.shields.io/badge/Releases-GitHub-1f7a8c?style=flat-square&logo=github&logoColor=white"/>
     </a>
     <a target="_blank" href="https://fish.audio/blog/fish-audio-open-sources-s2/">
@@ -160,11 +161,11 @@ docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi
 ### 1. Clone and fetch the checkpoint
 
 ```bash
-git clone https://github.com/groxaxo/fish-speech-int4-patch
+git clone https://github.com/scarxity/fish-speech-int4-patch
 cd fish-speech-int4-patch
 
 # ~4.9 GB
-huggingface-cli download groxaxo/s2-pro-BnB-4Bits --local-dir checkpoints/s2-pro
+huggingface-cli download scarxity/s2-pro-BnB-4Bits --local-dir checkpoints/s2-pro
 ```
 
 Use the **NF4** checkpoint. The unquantized release is 8.5 GB of bf16 that would have
@@ -285,7 +286,7 @@ so `server` and `server-4gb` behave identically here.
 
 ### Published model
 
-- Hugging Face model: [`groxaxo/s2-pro`](https://huggingface.co/groxaxo/s2-pro)
+- Hugging Face model: [`scarxity/s2-pro-BnB-4Bits`](https://huggingface.co/scarxity/s2-pro-BnB-4Bits)
 - Export helper: `python tools/llama/export_nf4.py --checkpoint-path checkpoints/s2-pro --output-path /tmp/s2-pro-nf4`
 
 > [!NOTE]
@@ -309,7 +310,7 @@ so `server` and `server-4gb` behave identically here.
 ### For LLM agents
 
 ```text
-Clone the repo, download groxaxo/s2-pro-BnB-4Bits into checkpoints/s2-pro, and patch
+Clone the repo, download scarxity/s2-pro-BnB-4Bits into checkpoints/s2-pro, and patch
 tokenizer_config.json ("TokenizersBackend" -> "PreTrainedTokenizerFast"). Precompute
 reference tokens, then start a Compose profile: server-4gb (4 GB cards) or server
 (12 GB+), both on port 8880; webui-4gb / webui on 7860. Run one profile at a time.
@@ -342,7 +343,7 @@ Visit the [Fish Audio website](https://fish.audio/) for live playground. Read th
 
 | Model | Size | Availability | Description |
 |------|------|-------------|-------------|
-| S2-Pro | 4B parameters | [HuggingFace](https://huggingface.co/groxaxo/s2-pro) | Groxaxo-hosted NF4 build of the flagship model |
+| S2-Pro | 4B parameters | [HuggingFace](https://huggingface.co/scarxity/s2-pro-BnB-4Bits) | NF4 build of the flagship model |
 
 More details of the model can be found in the [technical report](https://arxiv.org/abs/2411.01156).
 

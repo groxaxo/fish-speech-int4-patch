@@ -27,25 +27,25 @@ OPENAI_MODEL_METADATA = (
         "id": "tts-1",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "groxaxo",
+        "owned_by": "scarxity",
     },
     {
         "id": "tts-1-hd",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "groxaxo",
+        "owned_by": "scarxity",
     },
     {
         "id": "fish-speech",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "groxaxo",
+        "owned_by": "scarxity",
     },
     {
         "id": "s2-pro",
         "object": "model",
         "created": 1710000000,
-        "owned_by": "groxaxo",
+        "owned_by": "scarxity",
     },
 )
 

@@ -58,7 +58,7 @@
 This fork is optimized around a polished **RTX 3060 / 12 GB** server workflow:
 
 ```bash
-git clone https://github.com/groxaxo/fish-speech-int4-patch
+git clone https://github.com/scarxity/fish-speech-int4-patch
 cd fish-speech-int4-patch
 
 ./install_bnb4_3060.sh

@@ -16,7 +16,7 @@ apt install portaudio19-dev libsox-dev ffmpeg
 ### One-command setup
 
 ```bash
-git clone https://github.com/groxaxo/fish-speech-int4-patch
+git clone https://github.com/scarxity/fish-speech-int4-patch
 cd fish-speech-int4-patch
 
 ./install_bnb4_3060.sh
@@ -26,7 +26,7 @@ What the installer does:
 
 - creates a dedicated conda env named `fish-speech-bnb4`
 - installs Fish Speech with `bitsandbytes` support
-- downloads the Groxaxo-hosted `s2-pro` NF4 checkpoint into `checkpoints/s2-pro`
+- downloads the `s2-pro` NF4 checkpoint into `checkpoints/s2-pro`
 - keeps the deployment local and self-contained
 
 ### Start the API server
