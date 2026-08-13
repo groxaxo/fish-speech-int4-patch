@@ -105,6 +105,26 @@ def set_distill_capture_sink(sink: Optional[list]) -> None:
     _distill_capture_sink = sink
 
 
+def _fast_step(model, student, x, input_pos, *, project: bool):
+    """One position through the depth transformer, teacher or student.
+
+    `project` says whether x is the raw slow hidden (position 0, needs the
+    input projection) or an already-embedded code. The teacher infers this
+    from its own module widths; the student wants it stated, because a student
+    built at in_dim == dim cannot tell the two apart.
+    """
+    if student is None:
+        return model.forward_generate_fast(x, input_pos)
+    return student.forward_generate_fast(x, input_pos, project=project)
+
+
+def _fast_embed(model, student, idx):
+    """Code index -> depth-transformer input width, teacher or student."""
+    if student is None:
+        return model.fast_embeddings(idx)
+    return student.embed(idx)
+
+
 def decode_one_token_ar(
     model: DualARTransformer,
     x: torch.Tensor,
@@ -164,20 +184,27 @@ def decode_one_token_ar(
 
     codebooks = [main_token_normal]
 
+    # A distilled depth transformer, when one is loaded, stands in for the
+    # teacher's fast stack here and nowhere else - same 10-position contract,
+    # same sampling. Resolved once so torch.compile bakes the choice in.
+    student = getattr(model, "fast_student", None)
+
     input_pos = torch.tensor([0], device=hidden_states.device, dtype=torch.long)
-    model.forward_generate_fast(hidden_states, input_pos)
+    _fast_step(model, student, hidden_states, input_pos, project=True)
 
     a = codebooks[0] - model.config.semantic_begin_id
     a = torch.clamp(a, min=0, max=model.config.codebook_size - 1)
 
-    hidden_states = model.fast_embeddings(a)
+    hidden_states = _fast_embed(model, student, a)
     codebooks.append(a)
 
     for codebook_idx in range(1, model.config.num_codebooks):
         input_pos = torch.tensor(
             [codebook_idx], device=hidden_states.device, dtype=torch.long
         )
-        logits = model.forward_generate_fast(hidden_states, input_pos)
+        logits = _fast_step(
+            model, student, hidden_states, input_pos, project=False
+        )
 
         short_logits = logits  # DualAR predicts config.codebook_size number of tokens
 
@@ -189,7 +216,7 @@ def decode_one_token_ar(
             top_k=top_k,
         )[0]
 
-        hidden_states = model.fast_embeddings(a)
+        hidden_states = _fast_embed(model, student, a)
         codebooks.append(a)
 
     codebooks = torch.stack(codebooks, dim=1)
@@ -474,6 +501,30 @@ def init_model(
 
     if not offload_embeddings and os.getenv("FISH_FULL_LM_HEAD", "0") != "1":
         model.build_semantic_head(model.tokenizer.get_token_id(IM_END_TOKEN))
+
+    # Swap in a distilled depth transformer if one is configured. Unset, this
+    # is inert and the teacher's fast stack serves as before, so the student is
+    # opt-in and reversible by dropping the variable.
+    student_path = os.getenv("FISH_FAST_STUDENT", "").strip()
+    if student_path:
+        from fish_speech.models.text2semantic.fast_student import FastStudent
+
+        student = FastStudent.load(student_path, device=device, dtype=precision)
+        if student.config.num_codebooks != model.config.num_codebooks:
+            raise ValueError(
+                f"student was trained for {student.config.num_codebooks} codebooks, "
+                f"checkpoint has {model.config.num_codebooks}"
+            )
+        if student.config.in_dim != model.config.dim:
+            raise ValueError(
+                f"student expects a {student.config.in_dim}-wide slow hidden, "
+                f"checkpoint emits {model.config.dim}"
+            )
+        model.fast_student = student
+        logger.info(
+            f"Depth transformer: distilled student from {student_path} "
+            f"({student.num_parameters / 1e6:.1f}M params, dim {student.config.dim})"
+        )
 
     if isinstance(model, DualARTransformer):
         decode_one_token = decode_one_token_ar

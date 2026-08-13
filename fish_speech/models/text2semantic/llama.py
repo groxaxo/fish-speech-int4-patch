@@ -948,6 +948,11 @@ class DualARTransformer(BaseTransformer):
                 dtype=dtype,
             )
 
+        # A distilled stand-in needs its own caches, sized the same way.
+        student = getattr(self, "fast_student", None)
+        if student is not None:
+            student.setup_caches(max_batch_size, dtype=dtype)
+
     def forward(
         self,
         inp: Tensor,
