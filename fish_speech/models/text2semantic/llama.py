@@ -932,6 +932,23 @@ class DualARTransformer(BaseTransformer):
         )
         self.apply(self._init_weights)
 
+    def release_fast_stack(self) -> None:
+        """Drop the teacher's depth transformer once a student stands in for it.
+
+        Serving with a student never touches fast_layers/fast_embeddings/
+        fast_norm/fast_output again, but they stay resident otherwise - which
+        would make a distilled student a net memory *cost* rather than a saving,
+        since it is loaded alongside rather than in place of them.
+
+        fast_project_in stays: forward_generate applies it to every hidden state
+        on the main generate path, not only inside the depth loop. It is
+        nn.Identity whenever fast_dim == dim, so it costs nothing to keep.
+        """
+        self.fast_layers = nn.ModuleList()
+        self.fast_embeddings = None
+        self.fast_norm = None
+        self.fast_output = None
+
     def setup_caches(
         self, max_batch_size: int, max_seq_len: int, dtype: torch.dtype = torch.bfloat16
     ):

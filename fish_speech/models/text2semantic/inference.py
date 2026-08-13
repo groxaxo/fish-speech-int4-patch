@@ -521,9 +521,16 @@ def init_model(
                 f"checkpoint emits {model.config.dim}"
             )
         model.fast_student = student
+        # Free the teacher's depth stack only once the student is in place, so a
+        # failed load leaves a working model. Without this the student is loaded
+        # *alongside* what it replaces and costs memory instead of saving it.
+        model.release_fast_stack()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         logger.info(
             f"Depth transformer: distilled student from {student_path} "
-            f"({student.num_parameters / 1e6:.1f}M params, dim {student.config.dim})"
+            f"({student.num_parameters / 1e6:.1f}M params, dim {student.config.dim}); "
+            "teacher depth stack released"
         )
 
     if isinstance(model, DualARTransformer):
@@ -1073,7 +1080,7 @@ def launch_thread_safe_queue(
 @click.option(
     "--checkpoint-path",
     type=click.Path(path_type=Path, exists=True),
-    default="checkpoints/s2-pro",
+    default="checkpoints/s2-pro-nf4",
 )
 @click.option("--device", type=str, default="cuda")
 @click.option("--compile/--no-compile", default=False)
