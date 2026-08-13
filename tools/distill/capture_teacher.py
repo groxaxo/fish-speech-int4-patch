@@ -325,7 +325,7 @@ def _tally(entries: list[dict], key: str) -> dict:
 @click.option(
     "--checkpoint-path",
     type=click.Path(path_type=Path),
-    default=Path("checkpoints/s2-pro"),
+    default=Path("checkpoints/s2-pro-nf4"),
 )
 @click.option(
     "--references-dir", type=click.Path(path_type=Path), default=Path("references")

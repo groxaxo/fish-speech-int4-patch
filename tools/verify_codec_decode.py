@@ -257,7 +257,7 @@ def find_min_exact_overlap(model, indices, chunk, max_overlap, floor_overlap):
 @click.option("--config-name", default="modded_dac_vq")
 @click.option(
     "--checkpoint-path",
-    default="checkpoints/s2-pro/codec.pth",
+    default="checkpoints/s2-pro-nf4/codec.pth",
     type=click.Path(exists=True),
 )
 @click.option("--device", default="cpu", help="cpu (fp32 + fp64) or cuda (fp16)")

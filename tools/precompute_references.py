@@ -38,7 +38,7 @@ class _Encoder(VQManager, ReferenceLoader):
 @click.option("--reference-id", default=None, help="only this id (default: all)")
 @click.option(
     "--decoder-checkpoint-path",
-    default="checkpoints/s2-pro/codec.pth",
+    default="checkpoints/s2-pro-nf4/codec.pth",
     type=click.Path(exists=True, path_type=Path),
 )
 @click.option("--decoder-config-name", default="modded_dac_vq")

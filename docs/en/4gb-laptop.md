@@ -29,12 +29,12 @@ cd fish-speech-int4-patch
 git checkout perf/tier0-latency-vram
 
 # ~4.9 GB
-huggingface-cli download scarxity/fish-speech-s2-pro-nf4 --local-dir checkpoints/s2-pro
+huggingface-cli download scarxity/fish-speech-s2-pro-nf4 --local-dir checkpoints/s2-pro-nf4
 ```
 
 ### Required checkpoint edit
 
-Edit `checkpoints/s2-pro/tokenizer_config.json`:
+Edit `checkpoints/s2-pro-nf4/tokenizer_config.json`:
 
 ```json
 "tokenizer_class": "TokenizersBackend"   →   "PreTrainedTokenizerFast"

@@ -65,7 +65,7 @@ from fish_speech.models.text2semantic.llama import (  # noqa: E402
     precompute_freqs_cis,
 )
 
-DEFAULT_CHECKPOINT = Path("checkpoints/s2-pro")
+DEFAULT_CHECKPOINT = Path("checkpoints/s2-pro-nf4")
 DEFAULT_SHARDS = Path("notes/distill/shards")
 DEFAULT_WORKDIR = Path("notes/distill")
 

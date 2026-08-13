@@ -136,7 +136,7 @@ def process_batch(files: list[Path], model) -> float:
 @click.option("--config-name", default="modded_dac_vq")
 @click.option(
     "--checkpoint-path",
-    default="checkpoints/s2-pro/codec.pth",
+    default="checkpoints/s2-pro-nf4/codec.pth",
 )
 @click.option("--batch-size", default=64)
 @click.option("--filelist", default=None, type=Path)

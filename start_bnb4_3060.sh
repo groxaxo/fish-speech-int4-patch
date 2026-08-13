@@ -20,12 +20,12 @@ is_complete_checkpoint_dir() {
 }
 
 if [[ -z "${CHECKPOINT_DIR:-}" ]]; then
-    if is_complete_checkpoint_dir "${REPO_DIR}/checkpoints/s2-pro"; then
-        CHECKPOINT_DIR="${REPO_DIR}/checkpoints/s2-pro"
+    if is_complete_checkpoint_dir "${REPO_DIR}/checkpoints/s2-pro-nf4"; then
+        CHECKPOINT_DIR="${REPO_DIR}/checkpoints/s2-pro-nf4"
     elif is_complete_checkpoint_dir "${REPO_DIR}/checkpoints"; then
         CHECKPOINT_DIR="${REPO_DIR}/checkpoints"
     else
-        CHECKPOINT_DIR="${REPO_DIR}/checkpoints/s2-pro"
+        CHECKPOINT_DIR="${REPO_DIR}/checkpoints/s2-pro-nf4"
     fi
 fi
 

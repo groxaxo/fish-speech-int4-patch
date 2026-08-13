@@ -71,12 +71,12 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument(
         "--llama-checkpoint-path",
         type=str,
-        default="checkpoints/s2-pro",
+        default="checkpoints/s2-pro-nf4",
     )
     parser.add_argument(
         "--decoder-checkpoint-path",
         type=str,
-        default="checkpoints/s2-pro/codec.pth",
+        default="checkpoints/s2-pro-nf4/codec.pth",
     )
     parser.add_argument("--decoder-config-name", type=str, default="modded_dac_vq")
     parser.add_argument("--device", type=str, default="cuda")

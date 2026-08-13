@@ -114,8 +114,8 @@ def render(
 
 @click.command()
 @click.option("--student", type=Path, required=True, help="FastStudent checkpoint.")
-@click.option("--llama-path", type=Path, default=Path("checkpoints/s2-pro"))
-@click.option("--codec-path", type=Path, default=Path("checkpoints/s2-pro/codec.pth"))
+@click.option("--llama-path", type=Path, default=Path("checkpoints/s2-pro-nf4"))
+@click.option("--codec-path", type=Path, default=Path("checkpoints/s2-pro-nf4/codec.pth"))
 @click.option("--codec-config", default="modded_dac_vq")
 @click.option("--references-dir", type=Path, default=Path("references"))
 @click.option("--reference-id", default="beatrice10")
@@ -130,6 +130,11 @@ def render(
 )
 @click.option("--max-seq-len", type=int, default=2048, show_default=True)
 @click.option("--device", default="cuda")
+@click.option(
+    "--cases",
+    default=None,
+    help="Comma-separated case names to render; default is all of them.",
+)
 def main(
     student: Path,
     llama_path: Path,
@@ -142,7 +147,19 @@ def main(
     temperature: float,
     max_seq_len: int,
     device: str,
+    cases: str | None,
 ) -> None:
+    texts = DEFAULT_TEXTS
+    if cases:
+        wanted = [c.strip() for c in cases.split(",") if c.strip()]
+        known = {name for name, _ in DEFAULT_TEXTS}
+        unknown = [c for c in wanted if c not in known]
+        if unknown:
+            raise click.BadParameter(
+                f"unknown case(s) {', '.join(unknown)}; have {', '.join(sorted(known))}"
+            )
+        texts = [(n, t) for n, t in DEFAULT_TEXTS if n in wanted]
+
     out.mkdir(parents=True, exist_ok=True)
     precision = torch.half
 
@@ -186,11 +203,11 @@ def main(
     sample_rate = codec.sample_rate
 
     logger.info(
-        f"rendering {len(DEFAULT_TEXTS)} texts x 2 models, seed {seed}, "
+        f"rendering {len(texts)} texts x 2 models, seed {seed}, "
         f"temperature {temperature}"
     )
     rows = []
-    for name, text in DEFAULT_TEXTS:
+    for name, text in texts:
         outputs = {}
         for label in ("teacher", "student"):
             model.fast_student = fast_student if label == "student" else None

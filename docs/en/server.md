@@ -28,8 +28,8 @@ Fish Speech provides an HTTP API server entrypoint at `tools/api_server.py`.
 
 ```bash
 python tools/api_server.py \
-  --llama-checkpoint-path checkpoints/s2-pro \
-  --decoder-checkpoint-path checkpoints/s2-pro/codec.pth \
+  --llama-checkpoint-path checkpoints/s2-pro-nf4 \
+  --decoder-checkpoint-path checkpoints/s2-pro-nf4/codec.pth \
   --lazy-load \
   --idle-timeout-seconds 300 \
   --listen 0.0.0.0:8880

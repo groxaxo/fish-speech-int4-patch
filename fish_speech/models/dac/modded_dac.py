@@ -1076,7 +1076,7 @@ if __name__ == "__main__":
 
     # 配置路径
     config_path = "fish_speech/configs/modded_dac_vq.yaml"
-    checkpoint_path = "checkpoints/s2-pro/codec.pth"
+    checkpoint_path = "checkpoints/s2-pro-nf4/codec.pth"
     codes_path = "./output/codes_0.npy"  # 你的 codes 文件路径
     output_path = "reconstructed_from_codes.wav"
     sample_rate = 44100  # 请确保采样率与模型训练时一致

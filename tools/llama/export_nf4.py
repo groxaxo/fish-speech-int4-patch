@@ -42,7 +42,7 @@ def copy_non_weight_files(source: Path, destination: Path) -> None:
 @click.option(
     "--checkpoint-path",
     type=click.Path(path_type=Path, exists=True),
-    default="checkpoints/s2-pro",
+    default="checkpoints/s2-pro-nf4",
     show_default=True,
     help="Source checkpoint directory with full-precision weights.",
 )

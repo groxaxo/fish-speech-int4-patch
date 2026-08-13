@@ -165,14 +165,14 @@ git clone https://github.com/scarxity/fish-speech-int4-patch
 cd fish-speech-int4-patch
 
 # ~4.9 GB
-huggingface-cli download scarxity/fish-speech-s2-pro-nf4 --local-dir checkpoints/s2-pro
+huggingface-cli download scarxity/fish-speech-s2-pro-nf4 --local-dir checkpoints/s2-pro-nf4
 ```
 
 Use the **NF4** checkpoint. The unquantized release is 8.5 GB of bf16 that would have
 to be quantized at load — more host RAM, slower startup, no benefit.
 
 > [!IMPORTANT]
-> Edit `checkpoints/s2-pro/tokenizer_config.json` and change
+> Edit `checkpoints/s2-pro-nf4/tokenizer_config.json` and change
 > `"tokenizer_class": "TokenizersBackend"` to `"PreTrainedTokenizerFast"`.
 > `TokenizersBackend` is a transformers v5 name this loader does not recognise;
 > without the edit the server dies with `UnboundLocalError: tokenizer`.
@@ -287,7 +287,7 @@ so `server` and `server-4gb` behave identically here.
 ### Published model
 
 - Hugging Face model: [`scarxity/fish-speech-s2-pro-nf4`](https://huggingface.co/scarxity/fish-speech-s2-pro-nf4)
-- Export helper: `python tools/llama/export_nf4.py --checkpoint-path checkpoints/s2-pro --output-path /tmp/s2-pro-nf4`
+- Export helper: `python tools/llama/export_nf4.py --checkpoint-path checkpoints/s2-pro-nf4 --output-path /tmp/s2-pro-nf4`
 
 > [!NOTE]
 > `--bnb4` targets the NF4 checkpoint. Do **not** point it at legacy `int4` or
@@ -310,7 +310,7 @@ so `server` and `server-4gb` behave identically here.
 ### For LLM agents
 
 ```text
-Clone the repo, download scarxity/fish-speech-s2-pro-nf4 into checkpoints/s2-pro, and patch
+Clone the repo, download scarxity/fish-speech-s2-pro-nf4 into checkpoints/s2-pro-nf4, and patch
 tokenizer_config.json ("TokenizersBackend" -> "PreTrainedTokenizerFast"). Precompute
 reference tokens, then start a Compose profile: server-4gb (4 GB cards) or server
 (12 GB+), both on port 8880; webui-4gb / webui on 7860. Run one profile at a time.
